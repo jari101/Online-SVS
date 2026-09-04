@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Online SVS</title>
+  <meta name="description" content="A browser IDE: write and run code, edit a website folder from your PC and preview it live. Nothing is stored on the server.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23007acc'/%3E%3Cpath d='M5.5 4.5 2.5 8l3 3.5M10.5 4.5 13.5 8l-3 3.5M9 3 7 13' fill='none' stroke='%23fff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/theme.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+<div id="app" class="mode-scratch hide-preview">
+
+  <!-- ===== Title bar ===== -->
+  <header id="titlebar">
+    <div class="titlebar-left">
+      <span class="logo" data-icon="logo" aria-hidden="true"></span>
+      <span class="app-name">Online SVS</span>
+
+      <div class="menu" id="open-menu">
+        <button id="btn-open-folder" class="btn btn-secondary" title="Open a folder from your computer">Open Folder</button>
+        <button id="btn-open-menu" class="btn btn-secondary btn-caret" aria-label="More open options" data-icon="chevronDown"></button>
+        <ul class="menu-list" id="open-menu-list" hidden>
+          <li><button data-command="open-folder">Open Folder…</button></li>
+          <li><button data-command="open-sample">Open Sample Project</button></li>
+          <li class="menu-separator"></li>
+          <li><button data-command="close-folder" id="menu-close-folder" disabled>Close Folder</button></li>
+        </ul>
+      </div>
+
+      <label class="scratch-only lang-picker" title="Language of the scratch file">
+        <span>Language</span>
+        <select id="language-select"></select>
+      </label>
+    </div>
+
+    <div class="titlebar-center" id="titlebar-title">Online SVS</div>
+
+    <div class="titlebar-right">
+      <button id="btn-run" class="btn btn-run" disabled title="Run (coming in Phase 3)">
+        <span data-icon="play"></span><span>Run</span>
+      </button>
+      <button id="btn-live" class="btn btn-live" disabled title="Go Live (coming in Phase 2)">
+        <span data-icon="bolt"></span><span>Go Live</span>
+      </button>
+      <span class="titlebar-sep"></span>
+      <button id="btn-toggle-preview" class="icon-btn" title="Toggle preview panel" data-icon="layoutPreview"></button>
+      <button id="btn-toggle-panel" class="icon-btn" title="Toggle bottom panel (Ctrl+J)" data-icon="layoutPanel"></button>
+      <button id="btn-settings" class="icon-btn" title="Settings (Ctrl+,)" data-icon="gear"></button>
+    </div>
+  </header>
+
+  <!-- ===== Main area ===== -->
+  <div id="main">
+
+    <nav id="activitybar" aria-label="Activity bar">
+      <button class="activity active" data-view="explorer" title="Explorer (Ctrl+Shift+E)" data-icon="files"></button>
+      <button class="activity" data-view="search" title="Search (coming in Phase 4)" data-icon="search" disabled></button>
+      <div class="activity-spacer"></div>
+      <button class="activity" data-view="settings" id="activity-settings" title="Settings (Ctrl+,)" data-icon="gear"></button>
+    </nav>
+
+    <aside id="sidebar">
+      <section id="view-explorer" class="sidebar-view"></section>
+      <section id="view-settings" class="sidebar-view" hidden></section>
+    </aside>
+
+    <div id="divider-sidebar" class="divider divider-v" title="Drag to resize · double-click to reset"></div>
+
+    <div id="workbench">
+      <div id="editor-area">
+        <div id="tabs" role="tablist"></div>
+        <div id="editor-host">
+          <div id="editor"></div>
+          <div id="editor-placeholder">
+            <div class="placeholder-content">
+              <div class="placeholder-logo" data-icon="logo"></div>
+              <p>Loading the code editor…</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="divider-preview" class="divider divider-v" title="Drag to resize · double-click to reset"></div>
+
+      <div id="preview">
+        <div class="preview-toolbar">
+          <span class="preview-title"><span data-icon="bolt"></span> Live Preview</span>
+          <span class="spacer"></span>
+          <button class="icon-btn" id="btn-preview-close" title="Hide preview" data-icon="close"></button>
+        </div>
+        <div class="preview-body">
+          <div class="preview-empty">
+            <p>Press <strong>Go Live</strong> to see your website here.</p>
+            <p class="muted">The live server arrives in Phase 2.</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="divider-panel" class="divider divider-h" title="Drag to resize · double-click to reset"></div>
+
+      <div id="panel">
+        <div class="panel-header">
+          <button class="panel-tab active" data-tab="output">Output</button>
+          <button class="panel-tab" data-tab="input">Input</button>
+          <button class="panel-tab" data-tab="problems">Problems <span id="problems-count" class="badge" hidden>0</span></button>
+          <span class="spacer"></span>
+          <button class="icon-btn" id="btn-panel-close" title="Close panel (Ctrl+J)" data-icon="close"></button>
+        </div>
+        <div class="panel-body">
+          <div id="panel-output" class="panel-content">
+            <pre id="output-text" class="output"><span class="muted">Program output will appear here once the Run button is enabled (Phase 3).</span></pre>
+          </div>
+          <div id="panel-input" class="panel-content" hidden>
+            <textarea id="stdin-input" spellcheck="false" placeholder="Type the input your program will read (stdin), one value per line."></textarea>
+          </div>
+          <div id="panel-problems" class="panel-content" hidden>
+            <ul id="problems-list" class="problems"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Status bar ===== -->
+  <footer id="statusbar">
+    <div class="status-left">
+      <span id="status-live" class="status-item" title="Live server status"><span data-icon="bolt"></span> Live: off</span>
+      <span id="status-folder" class="status-item">No folder open</span>
+    </div>
+    <div class="status-right">
+      <span id="status-cursor" class="status-item">Ln 1, Col 1</span>
+      <span id="status-indent" class="status-item">Spaces: 4</span>
+      <span class="status-item">UTF-8</span>
+      <span id="status-language" class="status-item">Plain Text</span>
+      <span id="status-font" class="status-item" title="Editor font (change in Settings)">Default font</span>
+    </div>
+  </footer>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<input type="file" id="folder-input" webkitdirectory multiple hidden>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

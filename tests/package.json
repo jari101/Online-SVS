@@ -1,0 +1,14 @@
+{
+  "name": "online-svs-tests",
+  "private": true,
+  "type": "module",
+  "description": "Automated browser test for Online SVS. Run `npm install`, `npx playwright install chromium`, then `npm test`.",
+  "scripts": {
+    "test": "node smoke.spec.mjs"
+  },
+  "devDependencies": {
+    "http-server": "14.1.1",
+    "monaco-editor": "0.52.2",
+    "playwright": "1.56.1"
+  }
+}

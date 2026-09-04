@@ -1,0 +1,79 @@
+/* css/theme.css — every colour, font and size used by Online SVS lives here.
+   The values are the VS Code "Dark+" palette. Change a variable and the whole app follows. */
+:root {
+  color-scheme: dark;
+
+  /* Backgrounds */
+  --bg-editor: #1e1e1e;
+  --bg-sidebar: #252526;
+  --bg-activity: #333333;
+  --bg-titlebar: #3c3c3c;
+  --bg-tabbar: #252526;
+  --bg-tab-active: #1e1e1e;
+  --bg-tab-inactive: #2d2d2d;
+  --bg-panel: #1e1e1e;
+  --bg-statusbar: #007acc;
+  --bg-input: #3c3c3c;
+  --bg-menu: #252526;
+  --bg-hover: #2a2d2e;
+  --bg-list-active: #094771;
+  --bg-list-selected: #37373d;
+  --bg-button: #0e639c;
+  --bg-button-hover: #1177bb;
+  --bg-button-secondary: #3a3d41;
+  --bg-button-secondary-hover: #45494e;
+  --bg-badge: #4d4d4d;
+  --bg-toast: #252526;
+
+  /* Lines and accents */
+  --accent: #007acc;
+  --focus: #007fd4;
+  --border: #3c3c3c;
+  --border-strong: #454545;
+  --tab-top: #007acc;
+
+  /* Text */
+  --fg: #cccccc;
+  --fg-muted: #858585;
+  --fg-bright: #ffffff;
+  --fg-statusbar: #ffffff;
+  --fg-activity: #858585;
+  --fg-activity-active: #ffffff;
+
+  /* Semantic colours */
+  --error: #f14c4c;
+  --warning: #cca700;
+  --success: #89d185;
+  --info: #3794ff;
+  --live: #4ec9b0;
+
+  /* File icon colours (by extension) */
+  --icon-folder: #dcb67a;
+  --icon-html: #e44d26;
+  --icon-css: #519aba;
+  --icon-js: #cbcb41;
+  --icon-ts: #3178c6;
+  --icon-json: #cbcb41;
+  --icon-md: #519aba;
+  --icon-py: #3572a5;
+  --icon-c: #a074c4;
+  --icon-java: #cc3e44;
+  --icon-image: #a074c4;
+  --icon-svg: #ffb13b;
+  --icon-default: #8b8b8b;
+
+  /* Scrollbars */
+  --scrollbar: rgba(121, 121, 121, 0.4);
+  --scrollbar-hover: rgba(100, 100, 100, 0.7);
+
+  /* Fonts */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Ubuntu, Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: Consolas, Menlo, Monaco, "Droid Sans Mono", "Courier New", monospace;
+
+  /* Sizes */
+  --titlebar-h: 35px;
+  --statusbar-h: 22px;
+  --activitybar-w: 48px;
+  --tab-h: 35px;
+  --divider-size: 4px;
+}

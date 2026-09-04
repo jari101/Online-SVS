@@ -1,0 +1,107 @@
+/* css/layout.css — the grid that arranges the big regions of the screen,
+   the draggable dividers between them, and the show/hide states. */
+
+* { box-sizing: border-box; }
+
+/* `hidden` must always win, even over a class that sets display. */
+[hidden] { display: none !important; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg-editor);
+}
+
+/* The whole app is one vertical grid: title bar / main / status bar. */
+#app {
+  --sidebar-w: 260px;
+  --preview-w: 40%;
+  --panel-h: 220px;
+
+  display: grid;
+  grid-template-rows: var(--titlebar-h) minmax(0, 1fr) var(--statusbar-h);
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Main row: activity bar | sidebar | divider | workbench */
+#main {
+  display: grid;
+  grid-template-columns: var(--activitybar-w) var(--sidebar-w) var(--divider-size) minmax(0, 1fr);
+  min-height: 0;
+}
+#app.hide-sidebar #main { grid-template-columns: var(--activitybar-w) 0 0 minmax(0, 1fr); }
+#app.hide-sidebar #sidebar,
+#app.hide-sidebar #divider-sidebar { display: none; }
+
+/* Workbench: editor | divider | preview on the top row, divider + panel below. */
+#workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--divider-size) var(--preview-w);
+  grid-template-rows: minmax(0, 1fr) var(--divider-size) var(--panel-h);
+  min-width: 0;
+  min-height: 0;
+}
+#editor-area    { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#divider-preview { grid-column: 2; grid-row: 1; }
+#preview        { grid-column: 3; grid-row: 1; min-width: 0; min-height: 0; }
+#divider-panel  { grid-column: 1 / -1; grid-row: 2; }
+#panel          { grid-column: 1 / -1; grid-row: 3; min-height: 0; }
+
+#app.hide-preview #workbench { grid-template-columns: minmax(0, 1fr) 0 0; }
+#app.hide-preview #preview,
+#app.hide-preview #divider-preview { display: none; }
+
+#app.hide-panel #workbench { grid-template-rows: minmax(0, 1fr) 0 0; }
+#app.hide-panel #panel,
+#app.hide-panel #divider-panel { display: none; }
+
+/* Dividers: invisible until hovered or dragged, then accent-coloured. */
+.divider {
+  position: relative;
+  z-index: 5;
+  background: transparent;
+  transition: background 0.15s ease 0.25s;
+  touch-action: none;
+}
+.divider-v { cursor: col-resize; }
+.divider-h { cursor: row-resize; }
+.divider:hover,
+.divider.dragging { background: var(--accent); }
+/* Make the grab area a little bigger than the visible line. */
+.divider-v::after { content: ""; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px; }
+.divider-h::after { content: ""; position: absolute; left: 0; right: 0; top: -3px; bottom: -3px; }
+
+/* Editor host: Monaco fills it; a placeholder sits on top when nothing is open. */
+#editor-host { position: relative; flex: 1; min-height: 0; }
+#editor { position: absolute; inset: 0; }
+#editor-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-editor);
+  z-index: 2;
+}
+#editor-placeholder[hidden] { display: none; }
+
+/* Elements that only make sense in one of the two modes. */
+.scratch-only { display: none !important; }
+#app.mode-scratch .scratch-only { display: inline-flex !important; }
+.folder-only { display: none !important; }
+#app.mode-folder .folder-only { display: inline-flex !important; }
+
+/* Custom scrollbars that match the dark theme (WebKit/Blink browsers). */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
+* { scrollbar-color: var(--scrollbar) transparent; scrollbar-width: thin; }
