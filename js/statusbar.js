@@ -1,13 +1,12 @@
 // js/statusbar.js — the blue bar at the bottom: live-server state, folder, cursor position,
 // indentation, language and font.
 
-import { state, on, activeFile } from './state.js';
+import { state, on, emit, activeFile } from './state.js';
 import { getMonaco } from './editor.js';
 import { fontById } from './fonts.js';
 import { showPanelTab } from './panel.js';
 import { showSidebarView } from './layout.js';
-
-const $ = (id) => document.getElementById(id);
+import { $ } from './dom.js';
 
 export function initStatusBar() {
   const cursor = $('status-cursor');
@@ -16,6 +15,7 @@ export function initStatusBar() {
   const font = $('status-font');
   const folder = $('status-folder');
   const live = $('status-live');
+  const liveText = $('status-live-text');
 
   on('cursor', (p) => {
     cursor.textContent = `Ln ${p.lineNumber}, Col ${p.column}`;
@@ -53,12 +53,33 @@ export function initStatusBar() {
   on('folder', updateFolder);
   updateFolder();
 
-  for (const item of [indent, font]) {
-    item.classList.add('clickable');
-    item.addEventListener('click', () => showSidebarView('settings'));
-  }
-  live.classList.add('clickable');
-  live.addEventListener('click', () => showPanelTab('problems'));
+  const updateLive = () => {
+    const { status, errors } = state.live;
+    let text = 'Live: off';
+    let title = 'The live server is off. Click to start it.';
+    if (status === 'starting') {
+      text = 'Live: starting…';
+      title = 'The live server is starting.';
+    } else if (status === 'on') {
+      text = 'Live: on';
+      title = 'The live server is running. Click to stop it.';
+    } else if (status === 'paused') {
+      text = `Live: paused · ${errors} error${errors === 1 ? '' : 's'}`;
+      title = 'The preview will refresh once the errors are fixed. Click to see them.';
+    }
+    liveText.textContent = text;
+    live.title = title;
+    live.classList.toggle('warn', status === 'paused');
+  };
+  on('live', updateLive);
+  updateLive();
+
+  indent.addEventListener('click', () => showSidebarView('settings'));
+  font.addEventListener('click', () => showSidebarView('settings'));
+  live.addEventListener('click', () => {
+    if (state.live.status === 'paused') showPanelTab('problems');
+    else emit('command', 'toggle-live');
+  });
 }
 
 /** "javascript" -> "JavaScript", using Monaco's own list of language names. */

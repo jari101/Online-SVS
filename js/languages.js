@@ -1,6 +1,8 @@
 // js/languages.js — the languages the scratch editor offers, with the file extension Monaco
 // needs for syntax colouring, the name Piston uses to run them (Phase 3) and a starter program.
 
+import { extOf } from './fs/util.js';
+
 export const LANGUAGES = [
   {
     id: 'c', name: 'C', ext: 'c', monaco: 'c', piston: 'c',
@@ -81,9 +83,8 @@ export function findLanguage(id) {
 
 /** The language a file belongs to, judged by its extension, or null if unknown. */
 export function languageForPath(path) {
-  const name = path.split('/').pop();
-  if (!name.includes('.')) return null;
-  const ext = name.split('.').pop().toLowerCase();
+  const ext = extOf(path);
+  if (!ext) return null;
   const direct = LANGUAGES.find((l) => l.ext === ext);
   if (direct) return direct;
   const mapped = EXTRA_EXTENSIONS[ext];

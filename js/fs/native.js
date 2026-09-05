@@ -62,12 +62,14 @@ function createBackend(root) {
 
     async createFile(dir, name) {
       const parent = await dirHandle(dir, true);
+      if (await entryExists(parent, name)) throw new Error(`"${name}" already exists.`);
       await parent.getFileHandle(name, { create: true });
       return join(dir, name);
     },
 
     async createDir(dir, name) {
       const parent = await dirHandle(dir, true);
+      if (await entryExists(parent, name)) throw new Error(`"${name}" already exists.`);
       await parent.getDirectoryHandle(name, { create: true });
       return join(dir, name);
     },
@@ -82,6 +84,12 @@ function createBackend(root) {
       await parent.removeEntry(baseName(path), { recursive: true });
     },
   };
+}
+
+/** getFileHandle/getDirectoryHandle with {create:true} silently return an existing entry, so check first. */
+async function entryExists(dir, name) {
+  try { await dir.getFileHandle(name); return true; } catch { /* not a file */ }
+  try { await dir.getDirectoryHandle(name); return true; } catch { return false; }
 }
 
 async function buildTree(dir, path) {

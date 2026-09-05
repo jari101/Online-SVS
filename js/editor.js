@@ -8,6 +8,7 @@ import { fontById } from './fonts.js';
 import { toast } from './toast.js';
 import { icons } from './icons.js';
 import { escapeHtml, downloadText } from './dom.js';
+import { confirmDialog } from './dialog.js';
 
 /** The pseudo-path of the scratch file (it does not exist on disk). */
 export const SCRATCH_PATH = '__scratch__';
@@ -15,6 +16,7 @@ export const SCRATCH_PATH = '__scratch__';
 let monaco = null;
 let editor = null;
 let placeholderEl = null;
+const pendingOpens = new Map(); // path -> Promise, so a double-click cannot open a file twice
 
 export function getMonaco() {
   return monaco;
@@ -82,10 +84,12 @@ export async function initEditor(editorEl, placeholder) {
     smoothScrolling: true,
     cursorBlinking: 'smooth',
     mouseWheelZoom: true,
+    ariaLabel: 'Code editor',
   });
 
   editor.onDidChangeCursorPosition((e) => emit('cursor', e.position));
   showPlaceholder(emptyPlaceholder());
+  state.editorReady = true;
   emit('editor-ready', { monaco, editor });
   return editor;
 }
@@ -170,10 +174,18 @@ function watchModel(entry) {
 }
 
 /** Open a file from the current folder in a tab (reads it from disk the first time). */
-export async function openFile(path, { activate = true } = {}) {
-  let entry = findEntry(path);
-  if (!entry) {
+export function openFile(path, { activate = true } = {}) {
+  const existing = findEntry(path);
+  if (existing) {
+    if (activate) activateFile(path);
+    emit('tabs');
+    return Promise.resolve(existing);
+  }
+  if (pendingOpens.has(path)) return pendingOpens.get(path);
+
+  const promise = (async () => {
     const name = fs.baseName(path);
+    let entry;
     if (fs.isBinaryPath(path)) {
       entry = { path, name, kind: 'binary', dirty: false };
     } else {
@@ -194,10 +206,14 @@ export async function openFile(path, { activate = true } = {}) {
       watchModel(entry);
     }
     state.openFiles.push(entry);
-  }
-  if (activate) activateFile(path);
-  emit('tabs');
-  return entry;
+    if (activate) activateFile(path);
+    emit('tabs');
+    return entry;
+  })();
+
+  pendingOpens.set(path, promise);
+  promise.finally(() => pendingOpens.delete(path));
+  return promise;
 }
 
 /** Show an already-open file in the editor. */
@@ -217,6 +233,7 @@ export function activateFile(path) {
     if (entry.viewState) editor.restoreViewState(entry.viewState);
     hidePlaceholder();
     editor.focus();
+    emit('cursor', editor.getPosition() || { lineNumber: 1, column: 1 });
   } else {
     editor.setModel(null);
     showPlaceholder(binaryPlaceholder(entry));
@@ -235,14 +252,23 @@ export function revealPosition(path, lineNumber, column = 1) {
   editor.focus();
 }
 
-/** Close a tab. Asks first when there are unsaved changes. */
-export function closeFile(path) {
-  const index = state.openFiles.findIndex((f) => f.path === path);
-  if (index === -1) return false;
-  const entry = state.openFiles[index];
-  if (entry.scratch) return false;
-  if (entry.dirty && !window.confirm(`"${entry.name}" has unsaved changes. Close it anyway?`)) return false;
+/** Close a tab. Asks first when there are unsaved changes. Resolves to true when closed. */
+export async function closeFile(path) {
+  const entry = findEntry(path);
+  if (!entry || entry.scratch) return false;
+  if (entry.dirty) {
+    const discard = await confirmDialog({
+      title: `Close ${entry.name} without saving?`,
+      message: 'The changes you made since the last save will be lost.',
+      confirmLabel: 'Close without saving',
+      cancelLabel: 'Keep editing',
+      danger: true,
+    });
+    if (!discard) return false;
+  }
 
+  const index = state.openFiles.indexOf(entry);
+  if (index === -1) return false; // closed meanwhile
   state.openFiles.splice(index, 1);
   entry.model?.dispose();
 
@@ -278,7 +304,11 @@ export function closeAllFiles() {
 export async function saveFile(path) {
   const entry = findEntry(path);
   if (!entry || entry.kind !== 'text') return;
+
+  // Capture text AND version together: keystrokes typed while the write is in progress
+  // must stay marked as unsaved.
   const text = entry.model.getValue();
+  const version = entry.model.getAlternativeVersionId();
 
   if (entry.scratch) {
     downloadText(entry.name, text);
@@ -287,25 +317,21 @@ export async function saveFile(path) {
   }
 
   const backend = fs.current();
-  if (backend.readOnly) {
-    downloadText(entry.name, text);
-    entry.savedVersion = entry.model.getAlternativeVersionId();
-    entry.dirty = false;
-    emit('tabs');
-    toast(`This browser cannot write to your folder, so ${entry.name} was downloaded instead.`, 'warning', 4500);
-    return;
-  }
+  await fs.writeText(path, text); // memory backends keep the new text so reopening the tab shows it
+  if (backend.readOnly) downloadText(entry.name, text);
 
-  await fs.writeText(path, text);
-  entry.savedVersion = entry.model.getAlternativeVersionId();
-  entry.dirty = false;
+  entry.savedVersion = version;
+  entry.dirty = entry.model.getAlternativeVersionId() !== version;
   emit('tabs');
   emit('saved', entry);
-  toast(backend.sample ? `Saved ${entry.name} (sample project, in memory only)` : `Saved ${entry.name}`, 'success', 1800);
+
+  if (backend.readOnly) toast(`This browser cannot write to your folder, so ${entry.name} was downloaded instead.`, 'warning', 4500);
+  else if (backend.sample) toast(`Saved ${entry.name} (sample project, in memory only)`, 'success', 1800);
+  else toast(`Saved ${entry.name}`, 'success', 1800);
 }
 
 export async function saveAll() {
-  for (const entry of state.openFiles) {
+  for (const entry of [...state.openFiles]) {
     if (entry.dirty && !entry.scratch) await saveFile(entry.path);
   }
 }

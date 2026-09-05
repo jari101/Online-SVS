@@ -24,6 +24,14 @@
   --bg-button-secondary-hover: #45494e;
   --bg-badge: #4d4d4d;
   --bg-toast: #252526;
+  --bg-run: #238636;              /* white text: 4.6:1 */
+  --bg-run-hover: #2ea043;
+  --bg-danger: #a1260d;           /* white text: 7.5:1 */
+  --bg-danger-hover: #c42b1c;
+  --bg-statusbar-readonly: #6a5d00;
+  --bg-hover-subtle: rgba(255, 255, 255, 0.1);
+  --bg-hover-strong: rgba(255, 255, 255, 0.12);
+  --bg-backdrop: rgba(0, 0, 0, 0.55);
 
   /* Lines and accents */
   --accent: #007acc;
@@ -34,7 +42,7 @@
 
   /* Text */
   --fg: #cccccc;
-  --fg-muted: #858585;
+  --fg-muted: #9d9d9d;            /* 5.6:1 on the sidebar, 4.9:1 on inactive tabs */
   --fg-bright: #ffffff;
   --fg-statusbar: #ffffff;
   --fg-activity: #858585;
@@ -46,6 +54,8 @@
   --success: #89d185;
   --info: #3794ff;
   --live: #4ec9b0;
+  --fg-on-live: #0b2b26;
+  --fg-logo-dim: #3c3c3c;
 
   /* File icon colours (by extension) */
   --icon-folder: #dcb67a;

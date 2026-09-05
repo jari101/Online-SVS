@@ -1,4 +1,4 @@
-// js/dom.js — tiny helpers for building HTML safely.
+// js/dom.js — tiny helpers for building HTML safely and other small utilities.
 
 /** Escape text so it can be placed inside innerHTML without being read as HTML. */
 export function escapeHtml(value) {
@@ -14,6 +14,12 @@ export function el(tag, className = '', html = '') {
   if (html) node.innerHTML = html;
   return node;
 }
+
+/** Shorthand for document.getElementById. */
+export const $ = (id) => document.getElementById(id);
+
+/** Keep a number between two limits. */
+export const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 
 /** Download a text file to the user's computer (used when a folder cannot be written to). */
 export function downloadText(name, text) {

@@ -2,6 +2,7 @@
 // plus a tiny "event bus" so modules can react to changes without importing each other.
 
 export const state = {
+  editorReady: false,     // true once Monaco has loaded; folders cannot be opened before that
   mode: 'scratch',        // 'scratch' (single untitled file) or 'folder' (a folder from the PC is open)
   folder: null,           // { name, kind: 'native' | 'memory', readOnly, sample } when a folder is open
   tree: null,             // folder tree: { name, path, kind: 'dir', children: [...] }

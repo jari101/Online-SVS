@@ -135,7 +135,10 @@ export function pickWithInput(input) {
       cleanup();
       const files = [...input.files];
       input.value = '';
-      if (!files.length) return resolve(null);
+      if (!files.length) {
+        resolve(null);
+        return;
+      }
 
       const firstPath = files[0].webkitRelativePath || files[0].name;
       const rootName = firstPath.includes('/') ? firstPath.split('/')[0] : 'folder';

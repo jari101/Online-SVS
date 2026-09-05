@@ -4,7 +4,7 @@
 import { state, on, emit } from './state.js';
 import { getMonaco, revealPosition } from './editor.js';
 import { icons } from './icons.js';
-import { escapeHtml } from './dom.js';
+import { escapeHtml, $ } from './dom.js';
 import { togglePanel } from './layout.js';
 
 let outputEl = null;
@@ -12,18 +12,32 @@ let problemsEl = null;
 let countEl = null;
 
 export function initPanel() {
-  const panel = document.getElementById('panel');
-  outputEl = document.getElementById('output-text');
-  problemsEl = document.getElementById('problems-list');
-  countEl = document.getElementById('problems-count');
+  outputEl = $('output-text');
+  problemsEl = $('problems-list');
+  countEl = $('problems-count');
 
-  panel.querySelector('.panel-header').addEventListener('click', (e) => {
+  const header = $('panel').querySelector('.panel-header');
+  header.addEventListener('click', (e) => {
     const tab = e.target.closest('.panel-tab');
     if (tab) showPanelTab(tab.dataset.tab);
   });
-  document.getElementById('btn-panel-close').addEventListener('click', () => togglePanel(false));
+  header.addEventListener('keydown', (e) => {
+    const tabs = [...header.querySelectorAll('.panel-tab')];
+    const current = e.target.closest('.panel-tab');
+    if (!current) return;
+    const index = tabs.indexOf(current);
+    let next = null;
+    if (e.key === 'ArrowRight') next = tabs[(index + 1) % tabs.length];
+    else if (e.key === 'ArrowLeft') next = tabs[(index - 1 + tabs.length) % tabs.length];
+    if (next) {
+      e.preventDefault();
+      showPanelTab(next.dataset.tab);
+      next.focus();
+    }
+  });
+  $('btn-panel-close').addEventListener('click', () => togglePanel(false));
 
-  const stdin = document.getElementById('stdin-input');
+  const stdin = $('stdin-input');
   stdin.addEventListener('input', () => {
     state.stdin = stdin.value;
   });
@@ -38,7 +52,10 @@ export function initPanel() {
 
 export function showPanelTab(name) {
   for (const tab of document.querySelectorAll('.panel-tab')) {
-    tab.classList.toggle('active', tab.dataset.tab === name);
+    const active = tab.dataset.tab === name;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
   }
   for (const content of document.querySelectorAll('.panel-content')) {
     content.hidden = content.id !== `panel-${name}`;
@@ -78,6 +95,7 @@ export function collectProblems() {
   return problems;
 }
 
+/** How many errors (not warnings) the open files have right now. The live server uses this. */
 export function errorCount() {
   return collectProblems().filter((p) => p.isError).length;
 }
@@ -97,11 +115,14 @@ function renderProblems() {
   }
   for (const p of problems) {
     const li = document.createElement('li');
+    const kind = p.isError ? 'Error' : 'Warning';
     li.innerHTML = `
-      <span class="sev ${p.isError ? 'sev-error' : 'sev-warning'}">${p.isError ? icons.error : icons.warning}</span>
-      <span class="msg">${escapeHtml(p.marker.message)}</span>
-      <span class="loc">${escapeHtml(p.file.name)} [${p.marker.startLineNumber}, ${p.marker.startColumn}]</span>`;
-    li.addEventListener('click', () => revealPosition(p.file.path, p.marker.startLineNumber, p.marker.startColumn));
+      <button class="problem" type="button" title="Go to ${escapeHtml(p.file.name)} line ${p.marker.startLineNumber}">
+        <span class="sev ${p.isError ? 'sev-error' : 'sev-warning'}" aria-label="${kind}">${p.isError ? icons.error : icons.warning}</span>
+        <span class="msg">${escapeHtml(p.marker.message)}</span>
+        <span class="loc">${escapeHtml(p.file.name)} [${p.marker.startLineNumber}, ${p.marker.startColumn}]</span>
+      </button>`;
+    li.querySelector('button').addEventListener('click', () => revealPosition(p.file.path, p.marker.startLineNumber, p.marker.startColumn));
     problemsEl.appendChild(li);
   }
   emit('problems', { errors, total: problems.length });

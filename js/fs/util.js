@@ -64,3 +64,22 @@ export function validateName(name) {
   if (name === '.' || name === '..') return 'That name is reserved.';
   return null;
 }
+
+const MIME_TYPES = {
+  html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8',
+  js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8', cjs: 'text/javascript; charset=utf-8',
+  json: 'application/json; charset=utf-8', map: 'application/json; charset=utf-8', webmanifest: 'application/manifest+json',
+  xml: 'application/xml; charset=utf-8', svg: 'image/svg+xml',
+  txt: 'text/plain; charset=utf-8', md: 'text/markdown; charset=utf-8', csv: 'text/csv; charset=utf-8',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+  ico: 'image/x-icon', bmp: 'image/bmp',
+  woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm',
+  pdf: 'application/pdf', wasm: 'application/wasm',
+};
+
+/** The Content-Type the live server should send for a file (by extension). */
+export function mimeFor(path) {
+  return MIME_TYPES[extOf(path)] || 'application/octet-stream';
+}

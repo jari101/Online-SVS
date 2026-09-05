@@ -52,6 +52,8 @@ export async function ensureFontLoaded(font) {
     link.onload = resolve;
     link.onerror = () => {
       console.warn(`Could not download font "${font.label}"; using a fallback.`);
+      requested.delete(font.id); // so choosing it again retries the download
+      link.remove();
       resolve();
     };
     document.head.appendChild(link);

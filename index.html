@@ -11,22 +11,24 @@
   <link rel="stylesheet" href="css/components.css">
 </head>
 <body>
+<a class="skip-link" href="#editor-area" id="skip-link">Skip to editor</a>
+
 <div id="app" class="mode-scratch hide-preview">
 
   <!-- ===== Title bar ===== -->
   <header id="titlebar">
     <div class="titlebar-left">
       <span class="logo" data-icon="logo" aria-hidden="true"></span>
-      <span class="app-name">Online SVS</span>
+      <h1 class="app-name">Online SVS</h1>
 
       <div class="menu" id="open-menu">
-        <button id="btn-open-folder" class="btn btn-secondary" title="Open a folder from your computer">Open Folder</button>
-        <button id="btn-open-menu" class="btn btn-secondary btn-caret" aria-label="More open options" data-icon="chevronDown"></button>
-        <ul class="menu-list" id="open-menu-list" hidden>
-          <li><button data-command="open-folder">Open Folder…</button></li>
-          <li><button data-command="open-sample">Open Sample Project</button></li>
-          <li class="menu-separator"></li>
-          <li><button data-command="close-folder" id="menu-close-folder" disabled>Close Folder</button></li>
+        <button id="btn-open-folder" class="btn btn-secondary" title="Open a folder from your computer" disabled>Open Folder</button>
+        <button id="btn-open-menu" class="btn btn-secondary btn-caret" aria-label="More open options" aria-haspopup="menu" aria-expanded="false" aria-controls="open-menu-list" data-icon="chevronDown"></button>
+        <ul class="menu-list" id="open-menu-list" role="menu" hidden>
+          <li role="none"><button role="menuitem" data-command="open-folder">Open Folder…</button></li>
+          <li role="none"><button role="menuitem" data-command="open-sample">Open Sample Project</button></li>
+          <li class="menu-separator" role="separator"></li>
+          <li role="none"><button role="menuitem" data-command="close-folder" id="menu-close-folder" disabled>Close Folder</button></li>
         </ul>
       </div>
 
@@ -39,16 +41,16 @@
     <div class="titlebar-center" id="titlebar-title">Online SVS</div>
 
     <div class="titlebar-right">
-      <button id="btn-run" class="btn btn-run" disabled title="Run (coming in Phase 3)">
-        <span data-icon="play"></span><span>Run</span>
+      <button id="btn-run" class="btn btn-run" aria-disabled="true" title="Run the current file (arrives in Phase 3)">
+        <span data-icon="play" aria-hidden="true"></span><span>Run</span>
       </button>
-      <button id="btn-live" class="btn btn-live" disabled title="Go Live (coming in Phase 2)">
-        <span data-icon="bolt"></span><span>Go Live</span>
+      <button id="btn-live" class="btn btn-live" aria-pressed="false" title="Start the live server and preview your website" disabled>
+        <span data-icon="bolt" aria-hidden="true"></span><span class="btn-live-label">Go Live</span>
       </button>
-      <span class="titlebar-sep"></span>
-      <button id="btn-toggle-preview" class="icon-btn" title="Toggle preview panel" data-icon="layoutPreview"></button>
-      <button id="btn-toggle-panel" class="icon-btn" title="Toggle bottom panel (Ctrl+J)" data-icon="layoutPanel"></button>
-      <button id="btn-settings" class="icon-btn" title="Settings (Ctrl+,)" data-icon="gear"></button>
+      <span class="titlebar-sep" aria-hidden="true"></span>
+      <button id="btn-toggle-preview" class="icon-btn" title="Toggle preview panel" aria-label="Toggle preview panel" data-icon="layoutPreview"></button>
+      <button id="btn-toggle-panel" class="icon-btn" title="Toggle bottom panel (Ctrl+J)" aria-label="Toggle bottom panel" data-icon="layoutPanel"></button>
+      <button id="btn-settings" class="icon-btn" title="Settings (Ctrl+,)" aria-label="Settings" data-icon="gear"></button>
     </div>
   </header>
 
@@ -56,92 +58,98 @@
   <div id="main">
 
     <nav id="activitybar" aria-label="Activity bar">
-      <button class="activity active" data-view="explorer" title="Explorer (Ctrl+Shift+E)" data-icon="files"></button>
-      <button class="activity" data-view="search" title="Search (coming in Phase 4)" data-icon="search" disabled></button>
+      <button class="activity active" data-view="explorer" title="Explorer (Ctrl+Shift+E)" aria-label="Explorer" data-icon="files"></button>
+      <button class="activity" data-view="search" title="Search (arrives in Phase 4)" aria-label="Search (arrives in Phase 4)" data-icon="search" disabled></button>
       <div class="activity-spacer"></div>
-      <button class="activity" data-view="settings" id="activity-settings" title="Settings (Ctrl+,)" data-icon="gear"></button>
+      <button class="activity" data-view="settings" id="activity-settings" title="Settings (Ctrl+,)" aria-label="Settings" data-icon="gear"></button>
     </nav>
 
-    <aside id="sidebar">
-      <section id="view-explorer" class="sidebar-view"></section>
-      <section id="view-settings" class="sidebar-view" hidden></section>
+    <aside id="sidebar" aria-label="Sidebar">
+      <section id="view-explorer" class="sidebar-view" aria-label="Explorer"></section>
+      <section id="view-settings" class="sidebar-view" aria-label="Settings" hidden></section>
     </aside>
 
-    <div id="divider-sidebar" class="divider divider-v" title="Drag to resize · double-click to reset"></div>
+    <div id="divider-sidebar" class="divider divider-v" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" title="Drag or use the arrow keys to resize · double-click to reset"></div>
 
-    <div id="workbench">
-      <div id="editor-area">
-        <div id="tabs" role="tablist"></div>
+    <main id="workbench" aria-label="Workbench">
+      <div id="editor-area" tabindex="-1">
+        <div id="tabs" role="tablist" aria-label="Open files"></div>
         <div id="editor-host">
           <div id="editor"></div>
           <div id="editor-placeholder">
             <div class="placeholder-content">
-              <div class="placeholder-logo" data-icon="logo"></div>
+              <div class="placeholder-logo" data-icon="logo" aria-hidden="true"></div>
               <p>Loading the code editor…</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div id="divider-preview" class="divider divider-v" title="Drag to resize · double-click to reset"></div>
+      <div id="divider-preview" class="divider divider-v" role="separator" aria-orientation="vertical" aria-label="Resize preview" tabindex="0" title="Drag or use the arrow keys to resize · double-click to reset"></div>
 
-      <div id="preview">
+      <section id="preview" aria-label="Live preview">
         <div class="preview-toolbar">
-          <span class="preview-title"><span data-icon="bolt"></span> Live Preview</span>
-          <span class="spacer"></span>
-          <button class="icon-btn" id="btn-preview-close" title="Hide preview" data-icon="close"></button>
+          <span class="preview-title"><span data-icon="bolt" aria-hidden="true"></span> Live</span>
+          <button class="icon-btn" id="preview-back" title="Back" aria-label="Back" data-icon="arrowLeft"></button>
+          <button class="icon-btn" id="preview-forward" title="Forward" aria-label="Forward" data-icon="arrowRight"></button>
+          <button class="icon-btn" id="preview-reload" title="Reload preview" aria-label="Reload preview" data-icon="refresh"></button>
+          <span class="preview-address" id="preview-address" aria-live="polite">live/</span>
+          <a class="icon-btn" id="preview-open" href="#" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open preview in a new tab" data-icon="externalLink"></a>
+          <button class="icon-btn" id="btn-live-stop" title="Stop live server" aria-label="Stop live server" data-icon="stop"></button>
+          <button class="icon-btn" id="btn-preview-close" title="Hide preview" aria-label="Hide preview" data-icon="close"></button>
         </div>
         <div class="preview-body">
-          <div class="preview-empty">
+          <iframe id="preview-frame" title="Live preview of your website" hidden></iframe>
+          <div class="preview-empty" id="preview-empty">
             <p>Press <strong>Go Live</strong> to see your website here.</p>
-            <p class="muted">The live server arrives in Phase 2.</p>
+            <p class="muted">The preview refreshes as you type, as long as the code has no errors.</p>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div id="divider-panel" class="divider divider-h" title="Drag to resize · double-click to reset"></div>
+      <div id="divider-panel" class="divider divider-h" role="separator" aria-orientation="horizontal" aria-label="Resize bottom panel" tabindex="0" title="Drag or use the arrow keys to resize · double-click to reset"></div>
 
-      <div id="panel">
-        <div class="panel-header">
-          <button class="panel-tab active" data-tab="output">Output</button>
-          <button class="panel-tab" data-tab="input">Input</button>
-          <button class="panel-tab" data-tab="problems">Problems <span id="problems-count" class="badge" hidden>0</span></button>
+      <section id="panel" aria-label="Bottom panel">
+        <div class="panel-header" role="tablist" aria-label="Panel tabs">
+          <button class="panel-tab active" role="tab" aria-selected="true" data-tab="output" id="paneltab-output" aria-controls="panel-output">Output</button>
+          <button class="panel-tab" role="tab" aria-selected="false" data-tab="input" id="paneltab-input" aria-controls="panel-input">Input</button>
+          <button class="panel-tab" role="tab" aria-selected="false" data-tab="problems" id="paneltab-problems" aria-controls="panel-problems">Problems <span id="problems-count" class="badge" hidden>0</span></button>
           <span class="spacer"></span>
-          <button class="icon-btn" id="btn-panel-close" title="Close panel (Ctrl+J)" data-icon="close"></button>
+          <button class="icon-btn" id="btn-panel-close" title="Close panel (Ctrl+J)" aria-label="Close panel" data-icon="close"></button>
         </div>
         <div class="panel-body">
-          <div id="panel-output" class="panel-content">
+          <div id="panel-output" class="panel-content" role="tabpanel" aria-labelledby="paneltab-output">
             <pre id="output-text" class="output"><span class="muted">Program output will appear here once the Run button is enabled (Phase 3).</span></pre>
           </div>
-          <div id="panel-input" class="panel-content" hidden>
-            <textarea id="stdin-input" spellcheck="false" placeholder="Type the input your program will read (stdin), one value per line."></textarea>
+          <div id="panel-input" class="panel-content" role="tabpanel" aria-labelledby="paneltab-input" hidden>
+            <textarea id="stdin-input" spellcheck="false" aria-label="Program input (stdin)" placeholder="Type the input your program will read (stdin), one value per line."></textarea>
           </div>
-          <div id="panel-problems" class="panel-content" hidden>
+          <div id="panel-problems" class="panel-content" role="tabpanel" aria-labelledby="paneltab-problems" hidden>
             <ul id="problems-list" class="problems"></ul>
           </div>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   </div>
 
   <!-- ===== Status bar ===== -->
   <footer id="statusbar">
     <div class="status-left">
-      <span id="status-live" class="status-item" title="Live server status"><span data-icon="bolt"></span> Live: off</span>
+      <button id="status-live" class="status-item" title="Live server status"><span data-icon="bolt" aria-hidden="true"></span><span id="status-live-text">Live: off</span></button>
       <span id="status-folder" class="status-item">No folder open</span>
     </div>
     <div class="status-right">
       <span id="status-cursor" class="status-item">Ln 1, Col 1</span>
-      <span id="status-indent" class="status-item">Spaces: 4</span>
+      <button id="status-indent" class="status-item" title="Indentation (open Settings)">Spaces: 4</button>
       <span class="status-item">UTF-8</span>
       <span id="status-language" class="status-item">Plain Text</span>
-      <span id="status-font" class="status-item" title="Editor font (change in Settings)">Default font</span>
+      <button id="status-font" class="status-item" title="Editor font (open Settings)">Default font</button>
     </div>
   </footer>
 </div>
 
-<div id="toasts" aria-live="polite"></div>
-<input type="file" id="folder-input" webkitdirectory multiple hidden>
+<div id="toasts" role="status" aria-live="polite"></div>
+<input type="file" id="folder-input" webkitdirectory multiple hidden aria-hidden="true" tabindex="-1">
 
 <script type="module" src="js/main.js"></script>
 </body>

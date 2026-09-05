@@ -14,7 +14,7 @@ Plus the classic OnlineGDB part: pick a language, write a program, press **Run**
 | Phase | What | State |
 |---|---|---|
 | 1 | VS Code Dark+ layout, Monaco editor, tabs, scratch file, open/save folders, explorer, settings | **done** |
-| 2 | Live server (Service Worker), preview panel, refresh-on-type when the code has no errors | planned |
+| 2 | Live server (Service Worker), preview panel, refresh-on-type when the code has no errors | **done** |
 | 3 | Run button for C, C++, Python, Java, JavaScript and more via the Piston API, stdin input | planned |
 | 4 | Polish: search, rename/delete, quick open, image preview, more settings | planned |
 
@@ -31,6 +31,35 @@ Open the site in **Chrome, Edge, Opera or Brave** for the full experience.
 Firefox and Safari do not have the File System Access API, so there a folder opens **read-only** and
 Ctrl+S downloads the edited file instead.
 
+### Live Server
+
+1. Open a folder (or the sample project) and press **Go Live**. The preview panel opens on the right
+   and shows your site; **Open in new tab** gives you a normal URL under `…/live/` that you can open
+   in another window or a second browser tab.
+2. Type. About 0.75 s after you stop, the changed files are pushed to the preview and it reloads.
+   A CSS-only change swaps the stylesheet in place, without a flicker.
+3. Make a mistake in a script or stylesheet and the status bar switches to
+   **Live: paused · 1 error**. Nothing refreshes until the error is gone; click the status item to
+   see the Problems list.
+4. Press **Stop Live** (or close the folder) to stop. All served files are wiped.
+
+The scratch file can be previewed too: pick the **HTML** language and press Go Live.
+
+How it works: a Service Worker (`sw.js`) answers every request under `live/` from the browser's
+Cache API, where `js/live.js` copies the files of your folder. That is why relative links, images,
+several pages and `fetch('data.json')` all behave as on a real server. It needs `https://` or
+`http://localhost`; a `file://` address cannot run Service Workers.
+
+Two things to know:
+
+- Monaco reports syntax errors for JavaScript, TypeScript, CSS and JSON, but not for HTML, so a
+  broken HTML tag still refreshes the preview.
+- The preview runs on the same origin as the editor, so a script in the previewed page has the
+  same access as the editor itself, including the folder you opened. That is why Go Live asks for
+  confirmation the first time. Only preview code you trust; a "free template" downloaded from the
+  internet counts as untrusted. The "Open in new tab" window is opened without a reference back to
+  the editor, so a page there cannot reach it. Nothing is sent to any server either way.
+
 ### Keyboard shortcuts
 
 | Keys | Action |
@@ -42,6 +71,9 @@ Ctrl+S downloads the edited file instead.
 | Ctrl + Shift + E | Explorer |
 | Ctrl + , | Settings |
 | Ctrl + scroll | Zoom the editor |
+| Arrow keys | Move through the Explorer tree (Right expands, Left collapses), switch editor tabs, resize a focused divider |
+| Enter | Open the focused file |
+| Delete | Close the focused tab |
 
 ## Run it locally
 
@@ -70,6 +102,7 @@ The workflow in `.github/workflows/pages.yml` publishes the repository root on e
 
 ```
 index.html            the app shell (title bar, activity bar, sidebar, editor, preview, panel, status bar)
+sw.js                 the Service Worker that serves the live preview from the browser cache
 css/theme.css         every colour, font and size (VS Code Dark+ palette)
 css/layout.css        the grid, draggable dividers, show/hide states
 css/components.css    buttons, tree, tabs, panel, status bar, menus, toasts, settings
@@ -83,6 +116,9 @@ js/scratch.js         scratch mode + localStorage
 js/settings.js        settings view; js/fonts.js lists the fonts you can pick
 js/layout.js          dividers, sidebar/panel/preview toggles
 js/panel.js           Output / Input / Problems panel
+js/live.js            live server: syncs files into the cache, error gating, reload messages, preview panel
+js/dialog.js          confirmation dialog (native <dialog>) with verb-first buttons
+js/toast.js           notifications; errors stay until dismissed
 js/statusbar.js       the blue status bar
 js/languages.js       languages for the scratch file (with starter programs)
 js/fs/index.js        one API for files; native.js = File System Access, memory.js = in-memory fallback + sample
@@ -94,7 +130,8 @@ Monaco (the VS Code editor) is loaded from the jsDelivr CDN, so the first load n
 ## Automated test
 
 `tests/smoke.spec.mjs` starts a local server, opens the app in headless Chromium and clicks
-through the main features.
+through the main features: scratch mode, folders, keyboard navigation, the confirmation dialog,
+and the live server (preview, CSS hot swap, pausing on errors, the new-tab URL, 404 page, stop).
 
 ```bash
 cd tests
@@ -107,4 +144,5 @@ npm test
 
 - Files are read from and written to **your** disk through the browser's File System Access API.
 - The scratch file and your settings are kept in **your browser's** localStorage.
+- While the live server runs, copies of your files sit in **your browser's** cache so the preview can load them. They are removed when you stop the server, close the folder or reload the app.
 - Nothing is uploaded, and there is no server-side storage of any kind.

@@ -5,6 +5,7 @@ import { CONFIG } from './config.js';
 import { state, on, emit, activeFile, hasDirtyFiles } from './state.js';
 import { renderIcons } from './icons.js';
 import { toast } from './toast.js';
+import { confirmDialog } from './dialog.js';
 import * as fs from './fs/index.js';
 import {
   initEditor, openFile, saveFile, saveAll, closeAllFiles, errorPlaceholder, getEditor, getMonaco,
@@ -16,8 +17,8 @@ import { loadSettings, renderSettings, applySettings } from './settings.js';
 import { initLayout, showSidebarView, toggleSidebar, togglePanel, togglePreview } from './layout.js';
 import { initPanel } from './panel.js';
 import { initStatusBar } from './statusbar.js';
-
-const $ = (id) => document.getElementById(id);
+import { initLive, toggle as toggleLive, stop as stopLive } from './live.js';
+import { $ } from './dom.js';
 
 async function boot() {
   renderIcons();
@@ -29,6 +30,7 @@ async function boot() {
   initExplorer($('view-explorer'));
   renderSettings($('view-settings'));
   initScratch($('language-select'));
+  await initLive();
   wireTitleBar();
   wireCommands();
   wireShortcuts();
@@ -47,6 +49,10 @@ async function boot() {
     );
     return;
   }
+
+  // Folders and the live server need the editor, so their buttons wake up only now.
+  $('btn-open-folder').disabled = false;
+  $('btn-live').disabled = false;
 
   applySettings();
   emit('settings', state.settings);
@@ -72,13 +78,20 @@ function updateTitle() {
   if (state.folder) parts.push(state.folder.name);
   parts.push(CONFIG.appName);
   const title = parts.join(' — ');
-  $('titlebar-title').textContent = title;
+  const titleEl = $('titlebar-title');
+  titleEl.textContent = title;
+  titleEl.title = title; // the full text, in case it is cut short
   document.title = title;
 }
 
 /* ---------- Folder flows ---------- */
 
 async function openFolderFlow(source) {
+  if (!state.editorReady) {
+    toast('The editor is still loading. Try again in a moment.', 'warning');
+    return;
+  }
+
   let backend;
   try {
     backend = source === 'sample' ? fs.sampleFolder() : await fs.pickFolder();
@@ -89,7 +102,13 @@ async function openFolderFlow(source) {
   if (!backend) return; // the user cancelled the picker
 
   if (state.mode === 'folder' && hasDirtyFiles()) {
-    const discard = window.confirm('You have unsaved changes in the current folder. Discard them and open the new folder?');
+    const discard = await confirmDialog({
+      title: 'Discard unsaved changes?',
+      message: `Some files in "${state.folder.name}" have unsaved changes. Opening "${backend.name}" will lose them.`,
+      confirmLabel: 'Discard changes and open',
+      cancelLabel: 'Keep editing',
+      danger: true,
+    });
     if (!discard) return;
   }
 
@@ -98,6 +117,7 @@ async function openFolderFlow(source) {
 
   fs.setCurrent(backend);
   resetExplorer();
+  state.tree = null; // the explorer shows "Loading…" until the folder has been read
   state.folder = { name: backend.name, kind: backend.kind, readOnly: backend.readOnly, sample: backend.sample };
   setMode('folder');
   emit('folder', state.folder);
@@ -120,7 +140,16 @@ async function openFolderFlow(source) {
 
 async function closeFolderFlow() {
   if (state.mode !== 'folder') return;
-  if (hasDirtyFiles() && !window.confirm('You have unsaved changes. Close the folder anyway?')) return;
+  if (hasDirtyFiles()) {
+    const discard = await confirmDialog({
+      title: 'Close folder without saving?',
+      message: 'Some files have unsaved changes. They will be lost when the folder is closed.',
+      confirmLabel: 'Close without saving',
+      cancelLabel: 'Keep editing',
+      danger: true,
+    });
+    if (!discard) return;
+  }
   closeAllFiles();
   fs.closeFolder();
   resetExplorer();
@@ -148,8 +177,11 @@ const commands = {
   'toggle-sidebar': () => toggleSidebar(),
   'toggle-panel': () => togglePanel(),
   'toggle-preview': () => togglePreview(),
+  'toggle-live': () => toggleLive(),
+  'stop-live': () => stopLive(),
   'explorer': () => showSidebarView('explorer'),
   'settings': () => showSidebarView('settings'),
+  'run': () => toast('Running programs arrives in Phase 3.', 'info'),
 };
 
 export function runCommand(id) {
@@ -169,11 +201,12 @@ export function runCommand(id) {
 
 function reportError(err) {
   console.error(err);
-  toast(err?.message || String(err), 'error', 5000);
+  toast(err?.message || String(err), 'error');
 }
 
 function wireCommands() {
   document.addEventListener('click', (e) => {
+    if (!e.isTrusted) return; // only real clicks may run commands (a previewed page could forge events)
     const button = e.target.closest('[data-command]');
     if (!button || button.disabled) return;
     closeOpenMenu();
@@ -184,28 +217,44 @@ function wireCommands() {
 
 /* ---------- Title bar ---------- */
 
+function setMenuOpen(open) {
+  $('open-menu-list').hidden = !open;
+  $('btn-open-menu').setAttribute('aria-expanded', String(open));
+  if (open) $('open-menu-list').querySelector('button:not(:disabled)')?.focus();
+}
+
 function closeOpenMenu() {
-  $('open-menu-list').hidden = true;
+  if (!$('open-menu-list').hidden) setMenuOpen(false);
 }
 
 function wireTitleBar() {
   $('btn-open-folder').addEventListener('click', () => runCommand('open-folder'));
   $('btn-open-menu').addEventListener('click', (e) => {
     e.stopPropagation();
-    const list = $('open-menu-list');
-    list.hidden = !list.hidden;
+    setMenuOpen($('open-menu-list').hidden);
   });
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#open-menu')) closeOpenMenu();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeOpenMenu();
+    if (e.key === 'Escape' && !$('open-menu-list').hidden) {
+      closeOpenMenu();
+      $('btn-open-menu').focus();
+    }
   });
 
+  $('btn-run').addEventListener('click', () => runCommand('run'));
   $('btn-toggle-preview').addEventListener('click', () => togglePreview());
   $('btn-preview-close').addEventListener('click', () => togglePreview(false));
   $('btn-toggle-panel').addEventListener('click', () => togglePanel());
   $('btn-settings').addEventListener('click', () => showSidebarView('settings'));
+
+  $('skip-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    const editor = getEditor();
+    if (editor && editor.getModel()) editor.focus();
+    else $('editor-area').focus();
+  });
 }
 
 /* ---------- Keyboard shortcuts ---------- */
@@ -215,6 +264,7 @@ function wireShortcuts() {
   window.addEventListener(
     'keydown',
     (e) => {
+      if (!e.isTrusted) return; // ignore synthetic key events (they could come from a previewed page)
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
       const key = e.key.toLowerCase();
@@ -228,6 +278,14 @@ function wireShortcuts() {
     true,
   );
 
+  // Monaco cancels its own background requests (word highlights, hovers) when you switch
+  // files, and reports each cancellation as an unhandled "Canceled" rejection. VS Code filters
+  // these out too; they are not errors. Anything else still reaches the console.
+  window.addEventListener('unhandledrejection', (e) => {
+    const reason = e.reason;
+    if (reason && (reason.name === 'Canceled' || reason.message === 'Canceled')) e.preventDefault();
+  });
+
   // Warn before leaving the page with unsaved files (browsers show their own dialog).
   window.addEventListener('beforeunload', (e) => {
     if (hasDirtyFiles()) {
@@ -237,8 +295,12 @@ function wireShortcuts() {
   });
 }
 
-// Handy for debugging in the browser console and for the automated tests.
-window.SVS = { state, fs, getEditor, getMonaco, runCommand };
+// Debug hook for the browser console and the automated tests. It is only exposed on request
+// (`?debug` in the address, or window.SVS_DEBUG), because a previewed page shares this origin
+// and must not get a ready-made handle to the file system.
+if (window.SVS_DEBUG || new URLSearchParams(location.search).has('debug')) {
+  window.SVS = { state, fs, getEditor, getMonaco, runCommand };
+}
 
 boot().catch((err) => {
   console.error(err);

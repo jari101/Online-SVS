@@ -5,11 +5,10 @@ import { CONFIG } from './config.js';
 import { FONTS, fontById, ensureFontLoaded } from './fonts.js';
 import { state, emit } from './state.js';
 import { updateEditorOptions, applyModelOptionsToAll, getMonaco } from './editor.js';
-import { escapeHtml } from './dom.js';
+import { escapeHtml, clamp } from './dom.js';
 
 const DEFAULTS = { fontFamily: 'default', fontSize: 14, tabSize: 4, wordWrap: false, minimap: true };
 
-const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 
 export function loadSettings() {
   let saved = {};

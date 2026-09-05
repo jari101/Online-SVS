@@ -1,8 +1,10 @@
 // js/icons.js — every icon is an inline SVG string so no icon font or image download is needed.
 // They are drawn with `currentColor`, so CSS `color` decides their colour.
 
+import { extOf } from './fs/util.js';
+
 const svg = (body, viewBox = '0 0 16 16') =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
 
 export const icons = {
   logo: svg('<rect x="1" y="1" width="14" height="14" rx="3" fill="currentColor" stroke="none"/><path d="M5.5 4.5 2.5 8l3 3.5M10.5 4.5 13.5 8l-3 3.5M9 3 7 13" stroke="#fff" stroke-width="1.4"/>'),
@@ -21,17 +23,20 @@ export const icons = {
   close: svg('<path d="m4 4 8 8M12 4l-8 8"/>'),
   dot: svg('<circle cx="8" cy="8" r="3.5" fill="currentColor" stroke="none"/>'),
   play: svg('<path d="M4 2.5v11l9-5.5z" fill="currentColor" stroke="none"/>'),
+  stop: svg('<rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor" stroke="none"/>'),
   bolt: svg('<path d="M9 1.5 3 9h4l-1 5.5L13 7H9z" fill="currentColor" stroke="none"/>'),
   layoutPanel: svg('<rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M1.5 9.5h13"/>'),
   layoutPreview: svg('<rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M9.5 2.5v11"/>'),
   error: svg('<circle cx="8" cy="8" r="6"/><path d="M6 6l4 4M10 6l-4 4"/>'),
   warning: svg('<path d="M8 2 1.8 13h12.4z"/><path d="M8 6.5v3M8 11.5v.2"/>'),
   externalLink: svg('<path d="M9 2.5h4.5V7"/><path d="M13.5 2.5 7 9"/><path d="M11.5 9v4.5h-9v-9H7"/>'),
+  arrowLeft: svg('<path d="M13 8H3"/><path d="m7 4-4 4 4 4"/>'),
+  arrowRight: svg('<path d="M3 8h10"/><path d="m9 4 4 4-4 4"/>'),
 };
 
-/** Which colour class and icon a file name gets, judged by its extension. */
+/** Which colour class a file name gets, judged by its extension. */
 export function fileTypeClass(name) {
-  const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  const ext = extOf(name);
   if (['html', 'htm'].includes(ext)) return 'ft-html';
   if (['css', 'scss', 'less'].includes(ext)) return 'ft-css';
   if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) return 'ft-js';
@@ -48,8 +53,8 @@ export function fileTypeClass(name) {
 
 /** Fill every element that has a `data-icon="name"` attribute with that SVG. */
 export function renderIcons(root = document) {
-  for (const el of root.querySelectorAll('[data-icon]')) {
-    const icon = icons[el.dataset.icon];
-    if (icon) el.innerHTML = icon;
+  for (const node of root.querySelectorAll('[data-icon]')) {
+    const icon = icons[node.dataset.icon];
+    if (icon) node.innerHTML = icon;
   }
 }

@@ -1,10 +1,10 @@
-// js/layout.js — draggable dividers, showing/hiding the sidebar, panel and preview,
-// and switching which view the sidebar shows (Explorer or Settings).
+// js/layout.js — draggable (and keyboard-resizable) dividers, showing/hiding the sidebar,
+// panel and preview, and switching which view the sidebar shows (Explorer or Settings).
 
 import { state, emit } from './state.js';
+import { $, clamp } from './dom.js';
 
-const app = () => document.getElementById('app');
-const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+const app = () => $('app');
 
 export function initLayout() {
   makeDivider('divider-sidebar', {
@@ -13,7 +13,7 @@ export function initLayout() {
     direction: 1,
     min: 160,
     max: () => window.innerWidth * 0.5,
-    measure: () => document.getElementById('sidebar').getBoundingClientRect().width,
+    measure: () => $('sidebar').getBoundingClientRect().width,
   });
   makeDivider('divider-preview', {
     axis: 'x',
@@ -21,7 +21,7 @@ export function initLayout() {
     direction: -1,
     min: 220,
     max: () => window.innerWidth * 0.7,
-    measure: () => document.getElementById('preview').getBoundingClientRect().width,
+    measure: () => $('preview').getBoundingClientRect().width,
   });
   makeDivider('divider-panel', {
     axis: 'y',
@@ -29,7 +29,7 @@ export function initLayout() {
     direction: -1,
     min: 80,
     max: () => window.innerHeight * 0.75,
-    measure: () => document.getElementById('panel').getBoundingClientRect().height,
+    measure: () => $('panel').getBoundingClientRect().height,
   });
 
   for (const button of document.querySelectorAll('#activitybar .activity[data-view]')) {
@@ -41,9 +41,14 @@ export function initLayout() {
 /**
  * Turn an element into a drag handle that changes one CSS variable.
  * Pointer capture keeps the drag working even when the mouse moves over an iframe.
+ * Arrow keys move it 16 px (64 px with Shift) for keyboard users.
  */
 function makeDivider(id, opts) {
-  const divider = document.getElementById(id);
+  const divider = $(id);
+  const setSize = (size) => {
+    app().style.setProperty(opts.cssVar, `${clamp(size, opts.min, opts.max())}px`);
+  };
+
   divider.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     divider.setPointerCapture(e.pointerId);
@@ -54,8 +59,7 @@ function makeDivider(id, opts) {
 
     const move = (ev) => {
       const now = opts.axis === 'x' ? ev.clientX : ev.clientY;
-      const size = clamp(startSize + (now - start) * opts.direction, opts.min, opts.max());
-      app().style.setProperty(opts.cssVar, `${size}px`);
+      setSize(startSize + (now - start) * opts.direction);
     };
     const stop = () => {
       divider.classList.remove('dragging');
@@ -69,6 +73,24 @@ function makeDivider(id, opts) {
     divider.addEventListener('pointerup', stop);
     divider.addEventListener('pointercancel', stop);
   });
+
+  divider.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 64 : 16;
+    let delta = 0;
+    if (opts.axis === 'x') {
+      if (e.key === 'ArrowRight') delta = step * opts.direction;
+      else if (e.key === 'ArrowLeft') delta = -step * opts.direction;
+    } else if (e.key === 'ArrowDown') {
+      delta = step * opts.direction;
+    } else if (e.key === 'ArrowUp') {
+      delta = -step * opts.direction;
+    }
+    if (!delta) return;
+    e.preventDefault();
+    setSize(opts.measure() + delta);
+    emit('layout');
+  });
+
   // Double-click puts the pane back to its default size.
   divider.addEventListener('dblclick', () => {
     app().style.removeProperty(opts.cssVar);
@@ -124,7 +146,16 @@ function syncButtons() {
   for (const button of document.querySelectorAll('#activitybar .activity[data-view]')) {
     const active = button.dataset.view === state.sidebarView && !a.classList.contains('hide-sidebar');
     button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
   }
-  document.getElementById('btn-toggle-panel')?.classList.toggle('active', !a.classList.contains('hide-panel'));
-  document.getElementById('btn-toggle-preview')?.classList.toggle('active', !a.classList.contains('hide-preview'));
+  const panelButton = $('btn-toggle-panel');
+  const previewButton = $('btn-toggle-preview');
+  if (panelButton) {
+    panelButton.classList.toggle('active', !a.classList.contains('hide-panel'));
+    panelButton.setAttribute('aria-pressed', String(!a.classList.contains('hide-panel')));
+  }
+  if (previewButton) {
+    previewButton.classList.toggle('active', !a.classList.contains('hide-preview'));
+    previewButton.setAttribute('aria-pressed', String(!a.classList.contains('hide-preview')));
+  }
 }
