@@ -98,11 +98,32 @@ The workflow in `.github/workflows/pages.yml` publishes the repository root on e
 3. Wait for the "Deploy to GitHub Pages" action to finish. The site is at
    `https://<your-user>.github.io/Online-SVS/`.
 
+## Deploy to Vercel
+
+The site is static and has no build step, so Vercel serves the repository root as it is.
+
+1. On <https://vercel.com/new>, import this repository.
+2. Framework Preset **Other**, and leave Build Command and Output Directory empty.
+3. Deploy. Vercel serves it over `https://`, which the live server's Service Worker requires.
+
+`vercel.json` does three things, all of them deliberate:
+
+- Sends any `/live/...` address that reaches the server to `live-fallback.html`. A hard reload
+  bypasses the Service Worker, so without this the "Open in new tab" preview URL would land on
+  Vercel's own 404 page. While the worker is running it answers first and this never applies.
+- Keeps `sw.js`, `js/` and `css/` on `must-revalidate` instead of `immutable`. There is no build
+  step, so the file names never change; `immutable` would leave visitors on old code after a
+  deploy. Revalidating costs a 304.
+- Deliberately does **not** set `cleanUrls`: it strips `.html` from addresses, which the live
+  preview needs to keep.
+
 ## Project structure
 
 ```
 index.html            the app shell (title bar, activity bar, sidebar, editor, preview, panel, status bar)
 sw.js                 the Service Worker that serves the live preview from the browser cache
+live-fallback.html    shown when a /live/ address reaches the server instead of the worker
+vercel.json           rewrites and cache headers for the Vercel deployment
 css/theme.css         every colour, font and size (VS Code Dark+ palette)
 css/layout.css        the grid, draggable dividers, show/hide states
 css/components.css    buttons, tree, tabs, panel, status bar, menus, toasts, settings
@@ -125,7 +146,19 @@ js/fs/index.js        one API for files; native.js = File System Access, memory.
 tests/                automated browser test (see below)
 ```
 
+## Updating Monaco
+
 Monaco (the VS Code editor) is loaded from the jsDelivr CDN, so the first load needs internet.
+
+**Its version is pinned by hand.** `MONACO_VERSION` at the top of `js/config.js` is the only
+place it is written down: no package manager tracks it, so nothing will tell you when it is out
+of date. Whenever you update this project, check
+<https://github.com/microsoft/monaco-editor/releases> and decide whether to bump that constant,
+then reload the site and confirm the editor still starts. `tests/package.json` pins the same
+version for the offline copy the test uses; keep the two in step.
+
+`CONFIG.monacoBase` reads `window.SVS_MONACO_BASE` first, so pointing the app at a self-hosted
+copy of Monaco later is a one-line change and needs no other edits.
 
 ## Automated test
 

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<!-- Shown when a /live/ address reaches the server instead of the Service Worker: a hard
+     reload (Ctrl+Shift+R) bypasses the worker, and so does opening the URL before the worker
+     has ever been registered in this browser. Without this, the host's own 404 page appears
+     and the address looks broken. See the "rewrites" entry in vercel.json. -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live server is not running – Online SVS</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #1e1e1e; color: #cccccc; }
+    main { max-width: 32rem; padding: 2rem; text-align: center; }
+    h1 { font-weight: 500; color: #ffffff; }
+    p { line-height: 1.5; }
+    a.btn { display: inline-block; margin-top: 0.5rem; padding: 0.5rem 1rem; border-radius: 4px; background: #0e639c; color: #ffffff; text-decoration: none; transition: background 0.15s ease; }
+    a.btn:hover, a.btn:focus-visible { background: #1177bb; }
+    .muted { color: #8c8c8c; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>The live server is not running</h1>
+    <p>This address only works while <strong>Go Live</strong> is switched on in the editor, because
+      the pages are served from your own browser rather than from this website.</p>
+    <p><a class="btn" href="/">Open the editor and press Go Live</a></p>
+    <p class="muted">This page reloads by itself as soon as the live server starts.</p>
+  </main>
+  <script>
+    // The same channel js/live.js broadcasts on: starting the live server reloads this page,
+    // and by then the Service Worker is registered and answers the address properly.
+    (() => {
+      if (!('BroadcastChannel' in self)) return;
+      new BroadcastChannel('svs-live').onmessage = (e) => {
+        if ((e.data || {}).type === 'reload') location.reload();
+      };
+    })();
+  </script>
+</body>
+</html>
