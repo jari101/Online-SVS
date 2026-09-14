@@ -44,9 +44,9 @@ export function initPanel() {
 
   on('editor-ready', ({ monaco }) => {
     // Monaco re-checks a file shortly after you stop typing and then fires this event.
-    monaco.editor.onDidChangeMarkers(() => renderProblems());
+    monaco.editor.onDidChangeMarkers(scheduleProblems);
   });
-  on('tabs', renderProblems);
+  on('tabs', scheduleProblems);
   renderProblems();
 }
 
@@ -98,6 +98,18 @@ export function collectProblems() {
 /** How many errors (not warnings) the open files have right now. The live server uses this. */
 export function errorCount() {
   return collectProblems().filter((p) => p.isError).length;
+}
+
+let problemsQueued = false;
+
+/** Markers change on nearly every keystroke, so redraw the list at most once per frame. */
+function scheduleProblems() {
+  if (problemsQueued) return;
+  problemsQueued = true;
+  requestAnimationFrame(() => {
+    problemsQueued = false;
+    renderProblems();
+  });
 }
 
 function renderProblems() {

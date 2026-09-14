@@ -20,7 +20,7 @@ export function initExplorer(container) {
   host = container;
   on('folder', render);
   on('tree', render);
-  on('active', render);
+  on('active', updateActiveRow);
   on('editor-ready', render);
   render();
 }
@@ -88,6 +88,22 @@ function render() {
   host.append(renderTitle(), renderHeader(), tree);
   tree.scrollTop = scrollTop;
   if (hadFocus) tree.querySelector('.tree-row[tabindex="0"]')?.focus();
+}
+
+/**
+ * Another file became active. Only the highlight changes, so repaint the rows in place: a full
+ * render() would rebuild every row's SVG and steal the focus the editor has just taken.
+ * Mirrors the class logic at the end of renderRow().
+ */
+function updateActiveRow() {
+  if (!host) return;
+  for (const row of host.querySelectorAll('.tree-row[data-path]')) {
+    const isActive = row.dataset.path === state.activePath;
+    const isSelected = row.dataset.path === selectedPath;
+    row.classList.toggle('active', isActive);
+    row.classList.toggle('selected', !isActive && isSelected);
+    row.setAttribute('aria-selected', String(isActive || isSelected));
+  }
 }
 
 function renderTitle() {

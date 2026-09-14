@@ -72,8 +72,14 @@ export async function initLive() {
       toast('Live server stopped: only the HTML language can be previewed.', 'info');
     }
   });
-  window.addEventListener('pagehide', () => {
+  // Leaving the page wipes the served files. A back/forward-cached page comes back alive, so
+  // its cache must survive; it is refilled on the way in because the browser may have evicted it.
+  window.addEventListener('pagehide', (e) => {
+    if (e.persisted) return;
     if ('caches' in window) caches.delete(CACHE_NAME);
+  });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && isLive()) fullSync().catch(reportSyncError);
   });
 
   // Never serve files from a previous session.
@@ -237,6 +243,19 @@ async function syncPath(cache, path) {
   await putFile(cache, path, body);
 }
 
+/**
+ * Run `task` over every item with at most `limit` running at once. Reading a folder is one
+ * round trip to the disk per file, so doing them strictly one after another makes Go Live
+ * crawl on a big project.
+ */
+async function mapLimit(items, limit, task) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await task(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 async function fullSync() {
   await caches.delete(CACHE_NAME);
   synced.clear();
@@ -249,14 +268,14 @@ async function fullSync() {
   }
 
   let failed = 0;
-  for (const path of collectFiles(state.tree)) {
+  await mapLimit(collectFiles(state.tree), 8, async (path) => {
     try {
       await syncPath(cache, path);
     } catch (err) {
       failed += 1;
       console.warn(`Live server: unable to read ${path}`, err);
     }
-  }
+  });
   if (failed) {
     toast(`${failed} file${failed === 1 ? '' : 's'} could not be read and will be missing from the preview.`, 'warning', 6000);
   }

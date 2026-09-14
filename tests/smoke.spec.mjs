@@ -239,6 +239,17 @@ try {
     await probe.close();
   });
 
+  await step('a back/forward-cached page keeps its served files', async () => {
+    // pagehide fires both when the page is discarded and when it goes into the back/forward
+    // cache to come back alive later. Only the first may wipe the files the preview serves.
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+    await sleep(400); // long enough for the (unwanted) caches.delete to have finished
+    const probe = await context.newPage();
+    const res = await probe.goto(`${BASE}/live/index.html`);
+    assert.equal(res.status(), 200, 'a bfcache pagehide must not clear the live cache');
+    await probe.close();
+  });
+
   await step('closing a tab with unsaved changes shows a confirmation dialog', async () => {
     await page.click('.tab.active .tab-close');
     await page.waitForSelector('dialog[open]');
