@@ -42,7 +42,7 @@
 
     <div class="titlebar-right">
       <button id="btn-run" class="btn btn-run" aria-disabled="true" title="Run the current file (arrives in Phase 3)">
-        <span data-icon="play" aria-hidden="true"></span><span>Run</span>
+        <span class="btn-run-icon" data-icon="play" aria-hidden="true"></span><span class="btn-run-label">Run</span>
       </button>
       <button id="btn-live" class="btn btn-live" aria-pressed="false" title="Start the live server and preview your website" disabled>
         <span data-icon="bolt" aria-hidden="true"></span><span class="btn-live-label">Go Live</span>
@@ -119,7 +119,7 @@
         </div>
         <div class="panel-body">
           <div id="panel-output" class="panel-content" role="tabpanel" aria-labelledby="paneltab-output">
-            <pre id="output-text" class="output"><span class="muted">Program output will appear here once the Run button is enabled (Phase 3).</span></pre>
+            <pre id="output-text" class="output"><span class="muted">Press Run (Ctrl+Enter) to run the file you are editing. What it prints appears here.</span></pre>
           </div>
           <div id="panel-input" class="panel-content" role="tabpanel" aria-labelledby="paneltab-input" hidden>
             <textarea id="stdin-input" spellcheck="false" aria-label="Program input (stdin)" placeholder="Type the input your program will read (stdin), one value per line."></textarea>

@@ -27,6 +27,21 @@ function writeSaved(data) {
   }
 }
 
+/**
+ * Called once the code-running service has told us which languages it offers, so the
+ * dropdown can say which ones cannot be run. They stay selectable: you can still write
+ * and save the code, and HTML is previewed with Go Live rather than run.
+ */
+export function markLanguageAvailability(isAvailable) {
+  if (!selectEl) return;
+  for (const option of selectEl.options) {
+    const lang = findLanguage(option.value);
+    if (!lang || !lang.piston) continue;
+    const available = isAvailable(lang);
+    option.textContent = available ? lang.name : `${lang.name} (cannot be run today)`;
+  }
+}
+
 export function currentScratch() {
   return state.openFiles.find((f) => f.scratch) || null;
 }

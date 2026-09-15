@@ -216,6 +216,15 @@ export function openFile(path, { activate = true } = {}) {
   return promise;
 }
 
+/**
+ * The text of a file as it is right now in the editor, or null when it is not open.
+ * The live server and the runner both use this so they see your unsaved edits.
+ */
+export function openTextOf(path) {
+  const entry = findEntry(path);
+  return entry && entry.model && !entry.model.isDisposed() ? entry.model.getValue() : null;
+}
+
 /** Show an already-open file in the editor. */
 export function activateFile(path) {
   const entry = findEntry(path);

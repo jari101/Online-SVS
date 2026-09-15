@@ -12,7 +12,7 @@ import { CONFIG } from './config.js';
 import { state, on, emit } from './state.js';
 import * as fs from './fs/index.js';
 import { mimeFor } from './fs/util.js';
-import { getMonaco } from './editor.js';
+import { getMonaco, openTextOf } from './editor.js';
 import { errorCount, collectProblems } from './panel.js';
 import { togglePreview } from './layout.js';
 import { toast } from './toast.js';
@@ -228,9 +228,9 @@ async function syncPath(cache, path) {
     if (scratch) await putFile(cache, 'index.html', scratch.model.getValue());
     return;
   }
-  const open = state.openFiles.find((f) => f.path === path && f.model);
-  if (open) {
-    await putFile(cache, path, open.model.getValue());
+  const open = openTextOf(path);
+  if (open !== null) {
+    await putFile(cache, path, open);
     return;
   }
   const body = fs.isBinaryPath(path) ? await fs.readBinary(path) : await fs.readText(path);

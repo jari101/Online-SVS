@@ -17,7 +17,8 @@ export const state = {
     minimap: true,
   },
   stdin: '',              // text of the Input tab (sent to programs in Phase 3)
-  live: { status: 'off', errors: 0 },   // 'off' | 'on' | 'paused' (Phase 2)
+  live: { status: 'off', errors: 0 },   // 'off' | 'on' | 'paused'
+  running: false,         // true while a program is being run by the Piston service
 };
 
 const listeners = new Map();
