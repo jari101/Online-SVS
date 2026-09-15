@@ -25,8 +25,7 @@ const REQUEST_TIMEOUT = 30000;        // covers the whole run, both requests tog
 
 let runtimes = null;   // the service's language list, once it has answered us
 let inFlight = null;   // AbortController for the run in progress
-let cancelled = false;
-let timedOut = false;
+let timedOut = false;   // false after an abort means you pressed stop yourself
 let runButton = null;
 let runLabel = null;
 let runIcon = null;
@@ -180,7 +179,6 @@ export async function run() {
   }
   // Pressing the button while a run is under way stops waiting for the answer.
   if (state.running) {
-    cancelled = true;
     inFlight?.abort();
     return;
   }
@@ -188,7 +186,6 @@ export async function run() {
   showPanelTab('output');
   clearOutput();
   setRunning(true);
-  cancelled = false;
   timedOut = false;
   inFlight = new AbortController();
   const timer = setTimeout(() => {
