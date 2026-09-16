@@ -219,6 +219,11 @@ select:focus, input:focus, textarea:focus { border-color: var(--focus); outline:
 .tree-actions { display: none; gap: 2px; }
 #view-explorer:hover .tree-actions, #view-explorer:focus-within .tree-actions { display: flex; }
 .tree-actions .icon-btn { width: 24px; height: 24px; }
+/* These SVGs are injected without a `data-icon` attribute, so the 16px rule at the top
+   of this file never matched them and they stretched to fill the button. Sizing them
+   here both fixes that and sets the 14px the icons are drawn for; the button keeps its
+   full 24px hit area. */
+.tree-actions .icon-btn svg { width: 14px; height: 14px; }
 .tree { flex: 1; overflow: auto; padding-bottom: 20px; outline: none; }
 .tree-row {
   display: flex;

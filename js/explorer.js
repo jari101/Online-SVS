@@ -5,7 +5,7 @@
 import { state, on, emit } from './state.js';
 import * as fs from './fs/index.js';
 import { openFile } from './editor.js';
-import { icons, fileTypeClass } from './icons.js';
+import { icons, treeIcons, fileTypeClass } from './icons.js';
 import { escapeHtml, el } from './dom.js';
 import { toast } from './toast.js';
 
@@ -132,10 +132,10 @@ function renderHeader() {
   header.innerHTML = `
     <span class="tree-header-name" title="${name}">${name}</span>
     <span class="tree-actions">
-      <button class="icon-btn" data-action="new-file" title="New File" aria-label="New File">${icons.newFile}</button>
-      <button class="icon-btn" data-action="new-folder" title="New Folder" aria-label="New Folder">${icons.newFolder}</button>
-      <button class="icon-btn" data-action="refresh" title="Refresh Explorer" aria-label="Refresh Explorer">${icons.refresh}</button>
-      <button class="icon-btn" data-action="collapse" title="Collapse Folders" aria-label="Collapse Folders">${icons.collapseAll}</button>
+      <button class="icon-btn" data-action="new-file" title="New File" aria-label="New File">${treeIcons.newFile}</button>
+      <button class="icon-btn" data-action="new-folder" title="New Folder" aria-label="New Folder">${treeIcons.newFolder}</button>
+      <button class="icon-btn" data-action="refresh" title="Refresh Explorer" aria-label="Refresh Explorer">${treeIcons.refresh}</button>
+      <button class="icon-btn" data-action="collapse" title="Collapse Folders" aria-label="Collapse Folders">${treeIcons.collapseAll}</button>
     </span>`;
   header.addEventListener('click', (e) => {
     const button = e.target.closest('[data-action]');
