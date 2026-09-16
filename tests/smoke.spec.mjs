@@ -64,6 +64,55 @@ try {
   await waitForServer();
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+
+  // A stand-in for the Piston code-running service. The sandbox has no internet access, and
+  // even with it we would not want the tests hitting a public service. `pistonMode` lets each
+  // step decide what the service answers; `pistonCalls` records what we sent it.
+  const pistonCalls = [];
+  let pistonMode = 'ok';
+  let pistonDelay = 0;
+  const RUNTIMES = [
+    { language: 'python', version: '2.7.18', aliases: [] },
+    { language: 'python', version: '3.12.0', aliases: ['py', 'python3'] },
+    { language: 'c++', version: '10.2.0', aliases: ['cpp', 'g++'] },
+    { language: 'javascript', version: '20.11.1', aliases: ['node', 'js'] },
+    { language: 'java', version: '15.0.2', aliases: [] },
+  ];
+  await context.route('**/piston/runtimes', (route) => {
+    if (pistonMode === 'offline') return route.abort('failed');
+    return route.fulfill({ json: RUNTIMES });
+  });
+  await context.route('**/piston/execute', async (route) => {
+    pistonCalls.push(JSON.parse(route.request().postData()));
+    if (pistonDelay) await new Promise((r) => setTimeout(r, pistonDelay));
+    if (pistonMode === 'ratelimit') {
+      return route.fulfill({ status: 429, json: { message: 'Requests limited to 5 requests per 1s' } });
+    }
+    if (pistonMode === 'compile-error') {
+      return route.fulfill({
+        json: {
+          language: 'c++',
+          version: '10.2.0',
+          compile: { stdout: '', stderr: "main.cpp:3:5: error: expected ';' before '}'", code: 1, signal: null },
+          run: { stdout: '', stderr: '', code: 0, signal: null },
+        },
+      });
+    }
+    if (pistonMode === 'timeout-kill') {
+      return route.fulfill({
+        json: { language: 'python', version: '3.12.0', run: { stdout: '', stderr: '', code: null, signal: 'SIGKILL' } },
+      });
+    }
+    const sent = pistonCalls[pistonCalls.length - 1];
+    return route.fulfill({
+      json: {
+        language: sent.language,
+        version: sent.version,
+        run: { stdout: `ran ${sent.files[0].name}\nstdin was: ${sent.stdin}\n`, stderr: '', code: 0, signal: null },
+      },
+    });
+  });
+
   const page = await context.newPage();
   page.on('pageerror', (err) => {
     if (pageErrors.length < 50) pageErrors.push({ step: currentStep, message: err.message, stack: err.stack }); // capped
@@ -281,6 +330,139 @@ try {
     await probe.close();
   });
 
+  await step('Run sends the open folder file and its companions, but not data or secrets', async () => {
+    // A helper for the companion rule to pick up, plus two files that must stay put.
+    await page.click('.tree-row[data-path="js"]');            // selects the folder
+    await page.hover('#view-explorer');
+    await page.click('[data-action="new-file"]');
+    await page.fill('.tree-input', 'helper.js');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.tree-row[data-path="js/helper.js"]');
+    await page.evaluate(async () => {
+      const { fs } = window.SVS;
+      await fs.createFile('js', 'config.json');
+      await fs.writeText('js/config.json', '{"apiKey":"super-secret-value"}');
+      await fs.createFile('js', 'api_key.js');
+      await fs.writeText('js/api_key.js', 'export const KEY = "super-secret-value";');
+    });
+    await page.hover('#view-explorer');
+    await page.click('[data-action="refresh"]');
+    await page.waitForSelector('.tree-row[data-path="js/api_key.js"]');
+
+    await page.click('.tree-row[data-path="js/app.js"]');
+    await page.waitForSelector('.tab.active:has-text("app.js")');
+    pistonCalls.length = 0;
+    await page.click('#btn-run');
+    await page.waitForSelector('#panel-output:not([hidden])');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 20000 });
+
+    assert.equal(pistonCalls.length, 1);
+    const sent = pistonCalls[0];
+    assert.equal(sent.language, 'javascript');
+    assert.equal(sent.version, '20.11.1');
+    assert.equal(sent.files[0].name, 'app.js', 'the file being run must come first');
+    assert.ok(sent.files.some((f) => f.name === 'helper.js'), 'the companion file must be included');
+    const names = sent.files.map((f) => f.name);
+    assert.ok(!names.includes('config.json'), 'data files must not be sent');
+    assert.ok(!names.includes('api_key.js'), 'a file named like a secret must not be sent');
+    const body = JSON.stringify(sent);
+    assert.ok(!body.includes('super-secret-value'), 'no secret content may reach the service');
+    const output = await page.textContent('#output-text');
+    assert.match(output, /Running app\.js with JavaScript 20\.11\.1/);
+    assert.match(output, /Also sending from the same folder: helper\.js/);
+    assert.match(output, /name suggests it holds secrets/);
+    assert.match(output, /Exit code 0/);
+  });
+
+  await step('the Input tab is handed to the program as stdin', async () => {
+    await page.click('.panel-tab[data-tab="input"]');
+    await page.fill('#stdin-input', 'line one\nline two');
+    pistonCalls.length = 0;
+    await page.keyboard.press('Control+Enter');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 20000 });
+    assert.equal(pistonCalls[0].stdin, 'line one\nline two');
+    assert.match(await page.textContent('#output-text'), /stdin was: line one/);
+    // Run switches the panel to Output, so come back to Input before clearing it.
+    await page.click('.panel-tab[data-tab="input"]');
+    await page.fill('#stdin-input', '');
+    await page.click('.panel-tab[data-tab="output"]');
+  });
+
+  await step('a compile error is shown and the exit code is not claimed to be zero', async () => {
+    pistonMode = 'compile-error';
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('did not compile'), null, { timeout: 20000 });
+    const output = await page.textContent('#output-text');
+    assert.match(output, /expected ';' before/);
+    assert.doesNotMatch(output, /Exit code 0/);
+    pistonMode = 'ok';
+  });
+
+  await step('being rate limited explains itself in plain words', async () => {
+    pistonMode = 'ratelimit';
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('few runs per second'), null, { timeout: 20000 });
+    pistonMode = 'ok';
+  });
+
+  await step('a program stopped by the service says so', async () => {
+    pistonMode = 'timeout-kill';
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('SIGKILL'), null, { timeout: 20000 });
+    assert.match(await page.textContent('#output-text'), /run too long|too much memory/);
+    pistonMode = 'ok';
+  });
+
+  await step('running an HTML file points at Go Live instead', async () => {
+    await page.click('.tree-row[data-path="index.html"]');
+    await page.waitForSelector('.tab.active:has-text("index.html")');
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Go Live'), null, { timeout: 20000 });
+  });
+
+  await step('a neighbour with its own main is left out, but headers and helpers travel', async () => {
+    await page.evaluate(async () => {
+      const { fs } = window.SVS;
+      await fs.createFile('', 'exercise1.cpp');
+      await fs.writeText('exercise1.cpp', '#include "shapes.h"\nint main() { return area(2); }\n');
+      await fs.createFile('', 'exercise2.cpp');
+      await fs.writeText('exercise2.cpp', '#include <cstdio>\nint main() { printf("other"); }\n');
+      await fs.createFile('', 'shapes.h');
+      await fs.writeText('shapes.h', 'int area(int side);\n');
+      await fs.createFile('', 'shapes.cpp');
+      await fs.writeText('shapes.cpp', '#include "shapes.h"\nint area(int side) { return side * side; }\n');
+    });
+    await page.hover('#view-explorer'); // the tree's action buttons appear on hover
+    await page.click('[data-action="refresh"]');
+    await page.waitForSelector('.tree-row[data-path="exercise1.cpp"]');
+
+    await page.click('.tree-row[data-path="exercise1.cpp"]');
+    await page.waitForSelector('.tab.active:has-text("exercise1.cpp")');
+    pistonCalls.length = 0;
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 20000 });
+
+    const names = pistonCalls[0].files.map((f) => f.name);
+    assert.equal(names[0], 'exercise1.cpp');
+    assert.ok(names.includes('shapes.h'), 'the header must be sent');
+    assert.ok(names.includes('shapes.cpp'), 'a helper without a main must be sent');
+    assert.ok(!names.includes('exercise2.cpp'), 'a neighbour with its own main must be left out');
+    assert.equal(pistonCalls[0].language, 'c++');
+  });
+
+  await step('pressing Run again while it is running stops waiting, without a second request', async () => {
+    pistonDelay = 4000;
+    pistonCalls.length = 0;
+    await page.click('#btn-run');
+    await page.waitForSelector('#btn-run.running');
+    assert.equal(await page.textContent('.btn-run-label'), 'Running…');
+    await page.click('#btn-run');           // second press = stop waiting
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Stopped waiting'), null, { timeout: 20000 });
+    await page.waitForSelector('#btn-run:not(.running)');
+    assert.equal(pistonCalls.length, 1, 'a second press must not start another run');
+    pistonDelay = 0;
+  });
+
   await step('settings: choosing Fira Code changes the editor font', async () => {
     await page.click('#activity-settings');
     await page.selectOption('#setting-font', 'fira-code');
@@ -331,6 +513,51 @@ try {
     await page.selectOption('#language-select', 'python'); // switching language stops the server
     await waitForLiveStatus('Live: off');
     await page.screenshot({ path: path.join(SHOTS, 'phase1-scratch.png') });
+  });
+
+  await step('the scratch file runs, picking the newest version of the language', async () => {
+    await page.evaluate(() => window.SVS.getEditor().setValue('print("from the scratch file")\n'));
+    pistonCalls.length = 0;
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 20000 });
+    const sent = pistonCalls[0];
+    assert.equal(sent.language, 'python');
+    assert.equal(sent.version, '3.12.0', 'the newest listed version should win over 2.7.18');
+    assert.equal(sent.files[0].name, 'main.py');
+    assert.equal(sent.files.length, 1, 'the scratch file has no companions');
+    assert.match(await page.textContent('#output-text'), /Running main\.py with Python 3\.12\.0/);
+  });
+
+  await step('a Java scratch file is named after its public class', async () => {
+    await page.selectOption('#language-select', 'java');
+    await page.waitForSelector('.tab.active:has-text("untitled.java")');
+    await page.evaluate(() => window.SVS.getEditor().setValue('public class Greeter {\n  public static void main(String[] a) {}\n}\n'));
+    pistonCalls.length = 0;
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 20000 });
+    assert.equal(pistonCalls[0].files[0].name, 'Greeter.java');
+  });
+
+  await step('a language the service does not offer is reported, not silently run', async () => {
+    await page.selectOption('#language-select', 'rust');
+    await page.waitForSelector('.tab.active:has-text("untitled.rs")');
+    pistonCalls.length = 0;
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('does not currently offer'), null, { timeout: 20000 });
+    assert.equal(pistonCalls.length, 0, 'nothing should be sent for an unavailable language');
+    assert.match(await page.textContent('#language-select'), /Rust \(cannot be run today\)/);
+    await page.screenshot({ path: path.join(SHOTS, 'phase3-run.png') });
+  });
+
+  await step('when the service cannot be reached, the message says what to do', async () => {
+    await page.reload(); // clears the cached runtime list
+    await page.waitForSelector('.monaco-editor .view-lines', { timeout: 30000 });
+    await page.waitForSelector('#btn-open-folder:not([disabled])');
+    pistonMode = 'offline';
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Could not reach'), null, { timeout: 20000 });
+    assert.match(await page.textContent('#output-text'), /internet connection/);
+    pistonMode = 'ok';
   });
 
   await step('no JavaScript errors were thrown by the page', async () => {

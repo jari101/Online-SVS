@@ -43,6 +43,14 @@ p { text-wrap: pretty; }
 .btn-caret { padding: 0 4px; border-inline-start: 1px solid var(--border-strong); border-radius: 0 2px 2px 0; }
 .btn-run  { background: var(--bg-run); }
 .btn-run:hover:not([aria-disabled="true"])  { background: var(--bg-run-hover); }
+/* While a program is running the button turns neutral and offers to stop waiting.
+   The "Running…" label is the cue that does not depend on colour or motion. */
+.btn-run.running { background: var(--bg-button-secondary); color: var(--fg); }
+.btn-run.running:hover { background: var(--bg-button-secondary-hover); }
+@media (prefers-reduced-motion: no-preference) {
+  .btn-run.running .btn-run-icon { animation: run-pulse 1.2s ease-in-out infinite; }
+  @keyframes run-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+}
 .btn-live { background: var(--bg-button-secondary); color: var(--live); }
 .btn-live:hover:not(:disabled) { background: var(--bg-button-secondary-hover); }
 .btn-live[aria-pressed="true"] { background: var(--live); color: var(--fg-on-live); }

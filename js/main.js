@@ -18,6 +18,7 @@ import { initLayout, showSidebarView, toggleSidebar, togglePanel, togglePreview 
 import { initPanel } from './panel.js';
 import { initStatusBar } from './statusbar.js';
 import { initLive, toggle as toggleLive, stop as stopLive } from './live.js';
+import { initRunner, run as runProgram } from './runner.js';
 import { $ } from './dom.js';
 
 async function boot() {
@@ -53,6 +54,7 @@ async function boot() {
   // Folders and the live server need the editor, so their buttons wake up only now.
   $('btn-open-folder').disabled = false;
   $('btn-live').disabled = false;
+  initRunner();
 
   applySettings();
   emit('settings', state.settings);
@@ -181,7 +183,7 @@ const commands = {
   'stop-live': () => stopLive(),
   'explorer': () => showSidebarView('explorer'),
   'settings': () => showSidebarView('settings'),
-  'run': () => toast('Running programs arrives in Phase 3.', 'info'),
+  'run': () => runProgram(),
 };
 
 export function runCommand(id) {
@@ -274,6 +276,7 @@ function wireShortcuts() {
       else if (key === 'j' && !e.shiftKey) { e.preventDefault(); runCommand('toggle-panel'); }
       else if (key === 'e' && e.shiftKey) { e.preventDefault(); runCommand('explorer'); }
       else if (key === ',') { e.preventDefault(); runCommand('settings'); }
+      else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runCommand('run'); }
     },
     true,
   );

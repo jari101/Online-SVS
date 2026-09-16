@@ -15,7 +15,7 @@ Plus the classic OnlineGDB part: pick a language, write a program, press **Run**
 |---|---|---|
 | 1 | VS Code Dark+ layout, Monaco editor, tabs, scratch file, open/save folders, explorer, settings | **done** |
 | 2 | Live server (Service Worker), preview panel, refresh-on-type when the code has no errors | **done** |
-| 3 | Run button for C, C++, Python, Java, JavaScript and more via the Piston API, stdin input | planned |
+| 3 | Run button for C, C++, Python, Java, JavaScript and more via the Piston API, stdin input | **done** |
 | 4 | Polish: search, rename/delete, quick open, image preview, more settings | planned |
 
 ## Try it
@@ -45,6 +45,38 @@ Ctrl+S downloads the edited file instead.
 
 The scratch file can be previewed too: pick the **HTML** language and press Go Live.
 
+### Running programs
+
+1. Open a file, or write one in the scratch editor, and press **Run** or **Ctrl+Enter**.
+2. The **Output** tab shows what your program printed. Compiler messages and anything the
+   program wrote to its error stream appear in red, followed by the exit code and how long it took.
+3. If your program reads input, type it in the **Input** tab first, one value per line. It is
+   handed to the program the moment it starts, which is how OnlineGDB's non-interactive mode
+   works: a program cannot ask you for more input while it is running.
+4. Pressing the button again while a program is running stops waiting for the result.
+
+Languages: C, C++, Python, JavaScript, TypeScript, Java, C#, Go, Rust, PHP, Ruby, Kotlin,
+Swift, Bash and Lua. In a folder, the language comes from the file extension. Java files are
+named after their public class automatically, because the Java compiler insists on it.
+
+**Which files are sent.** The file you run always goes. Source files of the same kind sitting
+beside it go too, so `#include "utils.h"` and `import helper` find what they need. Three kinds
+of neighbour are deliberately held back: a file that defines its own `main`, so a folder full
+of separate exercises still compiles; data files such as `.json`, because that is where
+configuration and keys tend to live; and anything whose name suggests a secret, such as `.env`,
+`api_key.js` or a `.pem`. Every file that does get sent is named in the Output tab before the
+program runs, so nothing leaves your machine without you seeing it listed.
+
+Where the code runs: Online SVS has no server, so **Run** sends the file to
+[Piston](https://github.com/engineer-man/piston), a free public service that compiles and runs
+it in a sandbox and sends back the output. That one request is the only time your code leaves
+your browser, and it happens only when you press Run. Piston does not keep your code, but if
+you would rather it never left your machine at all, run your own Piston and change `pistonUrl`
+in `js/config.js`.
+
+Two limits worth knowing: the public service allows only a few runs per second, so a rapid
+second press may ask you to wait, and programs are stopped after a few seconds of running.
+
 How it works: a Service Worker (`sw.js`) answers every request under `live/` from the browser's
 Cache API, where `js/live.js` copies the files of your folder. That is why relative links, images,
 several pages and `fetch('data.json')` all behave as on a real server. It needs `https://` or
@@ -64,6 +96,7 @@ Two things to know:
 
 | Keys | Action |
 |---|---|
+| Ctrl + Enter | Run the current file |
 | Ctrl + S | Save the current file |
 | Ctrl + Shift + S | Save all files |
 | Ctrl + B | Show / hide the sidebar |
@@ -138,10 +171,11 @@ js/settings.js        settings view; js/fonts.js lists the fonts you can pick
 js/layout.js          dividers, sidebar/panel/preview toggles
 js/panel.js           Output / Input / Problems panel
 js/live.js            live server: syncs files into the cache, error gating, reload messages, preview panel
+js/runner.js          Run button: talks to the Piston service and renders the output
 js/dialog.js          confirmation dialog (native <dialog>) with verb-first buttons
 js/toast.js           notifications; errors stay until dismissed
 js/statusbar.js       the blue status bar
-js/languages.js       languages for the scratch file (with starter programs)
+js/languages.js       the languages you can write and run, starter programs, companion-file rules
 js/fs/index.js        one API for files; native.js = File System Access, memory.js = in-memory fallback + sample
 tests/                automated browser test (see below)
 ```
@@ -164,7 +198,8 @@ copy of Monaco later is a one-line change and needs no other edits.
 
 `tests/smoke.spec.mjs` starts a local server, opens the app in headless Chromium and clicks
 through the main features: scratch mode, folders, keyboard navigation, the confirmation dialog,
-and the live server (preview, CSS hot swap, pausing on errors, the new-tab URL, 404 page, stop).
+the live server (preview, CSS hot swap, pausing on errors, the new-tab URL, 404 page, stop),
+and the Run button against a stand-in for the Piston service.
 
 ```bash
 cd tests
@@ -178,4 +213,5 @@ npm test
 - Files are read from and written to **your** disk through the browser's File System Access API.
 - The scratch file and your settings are kept in **your browser's** localStorage.
 - While the live server runs, copies of your files sit in **your browser's** cache so the preview can load them. They are removed when you stop the server, close the folder or reload the app.
-- Nothing is uploaded, and there is no server-side storage of any kind.
+- Pressing **Run** is the one exception: the file you are running, the helper files beside it and your Input text are sent to the Piston service so it can run them. The Output tab names every file that was sent. Data files and anything that looks like a secret are held back. Nothing is sent until you press Run.
+- There is no account, no tracking and no server-side storage of any kind.
