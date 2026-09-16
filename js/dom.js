@@ -21,9 +21,8 @@ export const $ = (id) => document.getElementById(id);
 /** Keep a number between two limits. */
 export const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 
-/** Download a text file to the user's computer (used when a folder cannot be written to). */
-export function downloadText(name, text) {
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+/** Hand a file to the browser's downloader (used when we cannot write to the disk ourselves). */
+export function downloadBlob(name, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -32,4 +31,9 @@ export function downloadText(name, text) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Download a text file to the user's computer. */
+export function downloadText(name, text) {
+  downloadBlob(name, new Blob([text], { type: 'text/plain;charset=utf-8' }));
 }

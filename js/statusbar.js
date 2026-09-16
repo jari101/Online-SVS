@@ -43,10 +43,18 @@ export function initStatusBar() {
       let note = '';
       if (state.folder.readOnly) note = ' (read-only)';
       else if (state.folder.sample) note = ' (sample, in memory)';
+      // Loud on purpose: these edits exist only in the editor until the folder is saved out.
+      if (state.folder.needsExport) note += ' · not on your disk yet';
       folder.textContent = state.folder.name + note;
+      folder.title = state.folder.kind === 'native'
+        ? `Saving writes into "${state.folder.name}" on your disk. Click to download a zip copy of it.`
+        : `This browser cannot write to "${state.folder.name}". Click to download ${state.folder.name}.zip and unzip it over the original.`;
+      folder.classList.toggle('warn', Boolean(state.folder.needsExport));
       app.classList.toggle('folder-readonly', Boolean(state.folder.readOnly));
     } else {
       folder.textContent = 'No folder open · scratch file';
+      folder.title = 'Click to open a folder from your computer.';
+      folder.classList.remove('warn');
       app.classList.remove('folder-readonly');
     }
   };
@@ -74,6 +82,7 @@ export function initStatusBar() {
   on('live', updateLive);
   updateLive();
 
+  folder.addEventListener('click', () => emit('command', state.folder ? 'save-folder' : 'open-folder'));
   indent.addEventListener('click', () => showSidebarView('settings'));
   font.addEventListener('click', () => showSidebarView('settings'));
   live.addEventListener('click', () => {

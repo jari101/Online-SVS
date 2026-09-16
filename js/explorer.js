@@ -113,7 +113,7 @@ function renderTitle() {
 function renderEmpty() {
   const support = fs.supportsNative
     ? 'Your browser can save changes straight back to the folder on your disk.'
-    : 'This browser cannot write to your disk (Chrome, Edge or Opera can). Files open read-only and Ctrl+S downloads the edited file instead.';
+    : 'This browser cannot write to your disk (Chrome, Edge or Opera can). A folder opens read-only here, and Save Folder packs your edits back into a zip to unzip over the original.';
   const disabled = state.editorReady ? '' : 'disabled';
   host.innerHTML = `
     <h2 class="sidebar-title">Explorer</h2>

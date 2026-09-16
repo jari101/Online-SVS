@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -57,6 +57,26 @@ async function step(name, fn) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Read a zip the app produced. Every entry is *stored* (never compressed), so walking the
+ * local file headers back to back is enough — no inflate, and no zip library in the tests.
+ */
+function readZip(buffer) {
+  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const entries = new Map();
+  let at = 0;
+  while (at + 30 <= buffer.length && view.getUint32(at, true) === 0x04034b50) {
+    const size = view.getUint32(at + 18, true);
+    const nameLength = view.getUint16(at + 26, true);
+    const extraLength = view.getUint16(at + 28, true);
+    const name = buffer.subarray(at + 30, at + 30 + nameLength).toString('utf8');
+    const start = at + 30 + nameLength + extraLength;
+    entries.set(name, buffer.subarray(start, start + size));
+    at = start + size;
+  }
+  return entries;
+}
+
 /* ---------- the test ---------- */
 let browser;
 const pageErrors = [];
@@ -83,13 +103,21 @@ try {
     return route.fulfill({ json: RUNTIMES });
   });
   await context.route('**/piston/execute', async (route) => {
-    pistonCalls.push(JSON.parse(route.request().postData()));
+    // Read this request's own body up front. A delayed run is deliberately abandoned by one
+    // of the steps below, so this handler can still be sleeping when a later step resets
+    // `pistonCalls` — reading the answer back out of that shared list afterwards would then
+    // pick up the wrong call, or none at all.
+    const sent = JSON.parse(route.request().postData());
+    pistonCalls.push(sent);
+    const reply = (response) => route.fulfill(response).catch(() => {
+      /* the page navigated away while we were sleeping; nothing is waiting for this */
+    });
     if (pistonDelay) await new Promise((r) => setTimeout(r, pistonDelay));
     if (pistonMode === 'ratelimit') {
-      return route.fulfill({ status: 429, json: { message: 'Requests limited to 5 requests per 1s' } });
+      return reply({ status: 429, json: { message: 'Requests limited to 5 requests per 1s' } });
     }
     if (pistonMode === 'compile-error') {
-      return route.fulfill({
+      return reply({
         json: {
           language: 'c++',
           version: '10.2.0',
@@ -99,12 +127,11 @@ try {
       });
     }
     if (pistonMode === 'timeout-kill') {
-      return route.fulfill({
+      return reply({
         json: { language: 'python', version: '3.12.0', run: { stdout: '', stderr: '', code: null, signal: 'SIGKILL' } },
       });
     }
-    const sent = pistonCalls[pistonCalls.length - 1];
-    return route.fulfill({
+    return reply({
       json: {
         language: sent.language,
         version: sent.version,
@@ -193,6 +220,33 @@ try {
     await page.waitForSelector('.tab.active:not(.dirty)');
     const stored = await page.evaluate(() => window.SVS.fs.readText('css/style.css'));
     assert.match(stored, /edited in the test/);
+  });
+
+  await step('a folder the browser cannot write to says the edit is not on the disk yet', async () => {
+    const folder = await page.textContent('#status-folder');
+    assert.match(folder, /not on your disk yet/, 'the status bar must not imply the edit reached the disk');
+    assert.match(await page.getAttribute('#status-folder', 'title'), /unzip it over the original/);
+  });
+
+  await step('Save Folder packs the folder back up, keeping every file in its subfolder', async () => {
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('#status-folder'), // the status bar item is the shortcut for Save Folder
+    ]);
+    assert.equal(download.suggestedFilename(), 'sample-site.zip');
+
+    const entries = readZip(readFileSync(await download.path()));
+    // Everything sits under one folder named after the original, so unzipping it next to
+    // the original merges the files straight back in.
+    assert.ok(entries.has('sample-site/'), 'the zip should carry the folder itself');
+    assert.ok(entries.has('sample-site/css/'), 'subfolders should survive');
+    assert.ok(entries.has('sample-site/index.html'), `index.html missing, got ${[...entries.keys()]}`);
+    assert.match(
+      entries.get('sample-site/css/style.css').toString('utf8'),
+      /edited in the test/,
+      'the edit must travel back inside the zip, at its original path',
+    );
+    await page.waitForFunction(() => !document.getElementById('status-folder').textContent.includes('not on your disk'));
   });
 
   await step('new file from the explorer header', async () => {
@@ -558,6 +612,112 @@ try {
     await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Could not reach'), null, { timeout: 20000 });
     assert.match(await page.textContent('#output-text'), /internet connection/);
     pistonMode = 'ok';
+  });
+
+  await step('the scratch file is given a home on disk, and later saves go straight back to it', async () => {
+    // The browser only opens a Save dialog for a real person, so stand in for it. Everything
+    // after the dialog — writing, remembering, renaming the tab — is the app's own code.
+    await page.evaluate(() => {
+      window.__picks = 0;
+      window.__written = [];
+      window.showSaveFilePicker = async (options) => {
+        window.__picks++;
+        window.__suggested = options.suggestedName;
+        return {
+          kind: 'file',
+          name: 'greeting.py',
+          queryPermission: async () => 'granted',
+          requestPermission: async () => 'granted',
+          createWritable: async () => ({
+            write: async (text) => window.__written.push(text),
+            close: async () => {},
+          }),
+        };
+      };
+    });
+
+    await page.selectOption('#language-select', 'python');
+    await page.waitForSelector('.tab.active:has-text("untitled.py")');
+    await page.click('.monaco-editor .view-lines');
+    await page.keyboard.press('Control+a');
+    await page.keyboard.type('print("saved back where it came from")');
+
+    await page.keyboard.press('Control+s');
+    await page.waitForSelector('.tab.active:has-text("greeting.py")', { timeout: 10000 });
+    assert.equal(await page.evaluate(() => window.__suggested), 'untitled.py', 'the dialog should suggest the scratch name');
+    assert.match((await page.evaluate(() => window.__written))[0], /saved back where it came from/);
+
+    // A second save must not ask again: the file already has a home.
+    await page.keyboard.type('\n# one more line');
+    await page.keyboard.press('Control+s');
+    await page.waitForFunction(() => window.__written.length === 2, null, { timeout: 10000 });
+    assert.equal(await page.evaluate(() => window.__picks), 1, 'the second save must go straight back, without asking');
+    assert.match((await page.evaluate(() => window.__written))[1], /one more line/);
+    assert.match(await page.textContent('#toasts'), /back where it came from/);
+  });
+
+  await step('switching language lets go of a home that belongs to another file type', async () => {
+    await page.selectOption('#language-select', 'javascript');
+    await page.waitForSelector('.tab.active:has-text("untitled.js")', { timeout: 10000 });
+  });
+
+  await step('a remembered folder is offered again on the next visit', async () => {
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const request = indexedDB.open('svs-handles', 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('kv');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const tx = request.result.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put({
+          name: 'hello',
+          handle: { standIn: true },        // a real handle cannot be built by hand
+          tabs: [{ path: 'index.html', lineNumber: 1, column: 1 }],
+          activePath: 'index.html',
+        }, 'last-folder');
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      };
+    }));
+
+    await page.reload();
+    await page.waitForSelector('.monaco-editor .view-lines', { timeout: 30000 });
+    await page.waitForSelector('#reopen-bar:not([hidden])', { timeout: 10000 });
+    assert.equal(await page.textContent('#reopen-name'), 'hello');
+    assert.match(await page.textContent('#reopen-files'), /1 file open/);
+    assert.match(await page.textContent('#menu-reopen-folder'), /Reopen "hello"/);
+
+    // The bar adds a row to the app's grid; the editor must keep the rest of the height.
+    const main = await page.locator('#main').boundingBox();
+    assert.ok(main.height > 500, `the editor area collapsed to ${main.height}px when the bar appeared`);
+    await page.screenshot({ path: path.join(SHOTS, 'reopen-bar.png') });
+
+    await page.click('#btn-reopen-forget');
+    await page.waitForSelector('#reopen-bar', { state: 'hidden', timeout: 5000 });
+    assert.ok(await page.getAttribute('#menu-reopen-folder', 'hidden') !== null, 'the menu entry should go too');
+    const left = await page.evaluate(() => new Promise((resolve) => {
+      const request = indexedDB.open('svs-handles', 1);
+      request.onsuccess = () => {
+        const get = request.result.transaction('kv', 'readonly').objectStore('kv').get('last-folder');
+        get.onsuccess = () => resolve(get.result || null);
+      };
+    }));
+    assert.equal(left, null, 'Forget should clear what was remembered');
+  });
+
+  await step('reopening a folder puts the tabs back where they were left', async () => {
+    await page.evaluate(() => window.SVS.adoptFolder(window.SVS.fs.sampleFolder(), {
+      tabs: [
+        { path: 'index.html', lineNumber: 1, column: 1 },
+        { path: 'css/style.css', lineNumber: 3, column: 5 },
+        { path: 'gone.txt', lineNumber: 1, column: 1 },
+      ],
+      activePath: 'css/style.css',
+    }));
+    await page.waitForSelector('.tab.active:has-text("style.css")', { timeout: 10000 });
+    const names = await page.$$eval('.tab .tab-name', (nodes) => nodes.map((n) => n.textContent));
+    assert.deepEqual(names, ['index.html', 'style.css'], 'both files reopen; the missing one is skipped');
+    assert.equal(await page.textContent('#status-cursor'), 'Ln 3, Col 5', 'the cursor should be where it was left');
+    assert.match(await page.textContent('#toasts'), /1 file is no longer there/);
   });
 
   await step('no JavaScript errors were thrown by the page', async () => {

@@ -1,7 +1,8 @@
 // js/fs/memory.js — a folder that lives only in the browser tab's memory.
 // Used for the built-in sample project and as the read-only fallback in browsers that
 // lack the File System Access API (Firefox, Safari): files are read through a normal
-// <input type="file" webkitdirectory>, edits stay in memory, and "Save" downloads the file.
+// <input type="file" webkitdirectory> and edits stay in memory, so "Save Folder" packs the whole
+// folder into a zip to unzip back over the original.
 
 import { CONFIG } from '../config.js';
 import { segments, join, sortNodes, parentOf, baseName } from './util.js';
