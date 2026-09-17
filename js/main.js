@@ -5,7 +5,7 @@ import { CONFIG } from './config.js';
 import { state, on, emit, activeFile, hasDirtyFiles } from './state.js';
 import { renderIcons } from './icons.js';
 import { toast } from './toast.js';
-import { confirmDialog } from './dialog.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import * as fs from './fs/index.js';
 import {
   initEditor, openFile, activateFile, saveFile, saveAll, closeAllFiles, errorPlaceholder,
@@ -114,7 +114,34 @@ async function openFolderFlow(source) {
   }
   if (!backend) return; // the user cancelled the picker
 
+  if (fs.isEmptyPick(backend)) {
+    backend = await startEmptyFolder();
+    if (!backend) return;
+  }
+
   await adoptFolder(backend);
+}
+
+/**
+ * Firefox and Safari read a folder by listing the files in it, so an empty folder gives them
+ * nothing at all — not even its name. Rather than looking like the picker was cancelled, offer
+ * to start a folder here: you name it, you make the files, and Save Folder hands it back as a
+ * zip you can unzip wherever you want it.
+ */
+async function startEmptyFolder() {
+  const name = await promptDialog({
+    title: 'That folder is empty',
+    message: 'This browser can only see a folder through the files inside it, so an empty one is '
+      + 'invisible to it — even its name. You can start a folder here instead: make your files, '
+      + 'then Save Folder downloads them as a zip to unzip wherever you like.',
+    label: 'Folder name',
+    value: 'my-project',
+    placeholder: 'my-project',
+    confirmLabel: 'Start this folder',
+    cancelLabel: 'Cancel',
+    validate: (value) => fs.validateName(value),
+  });
+  return name ? fs.newFolder(name) : null;
 }
 
 /**
@@ -175,9 +202,18 @@ async function adoptFolder(backend, restore = null) {
     }
   }
 
-  if (backend.sample) toast('Sample project opened. It lives in memory only: refreshing the page resets it.', 'info', 4500);
-  else if (backend.readOnly) toast(`Opened "${backend.name}" read-only. This browser cannot write to it, so Save Folder packs your edits back up as a zip.`, 'warning', 6000);
-  else toast(`Opened "${backend.name}". Ctrl+S saves straight back into it.`, 'success');
+  // An empty folder has no file to click, so say where the first one comes from.
+  const empty = !state.tree?.children?.length;
+  const firstStep = empty ? ' It is empty — make your first file in the Explorer.' : '';
+  if (backend.sample) {
+    toast('Sample project opened. It lives in memory only: refreshing the page resets it.', 'info', 4500);
+  } else if (backend.readOnly) {
+    toast(`Opened "${backend.name}" read-only. This browser cannot write to it, so Save Folder packs your edits back up as a zip.`, 'warning', 6000);
+  } else if (backend.kind !== 'native') {
+    toast(`Started "${backend.name}" in the editor.${firstStep} Nothing is on your disk yet: Save Folder downloads it as a zip.`, 'info', 7000);
+  } else {
+    toast(`Opened "${backend.name}".${firstStep || ' Ctrl+S saves straight back into it.'}`, 'success', empty ? 5000 : 3000);
+  }
 }
 
 /** Put back the tabs a folder had open last time. Files that have since gone are counted. */

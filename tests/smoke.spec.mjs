@@ -720,6 +720,126 @@ try {
     assert.match(await page.textContent('#toasts'), /1 file is no longer there/);
   });
 
+  await step('an empty folder offers a way out without hunting for a hover', async () => {
+    await page.evaluate(async () => {
+      const memory = await import('/js/fs/memory.js');
+      const backend = memory.fromFiles('hello', {}, { readOnly: false, sample: false });
+      backend.kind = 'native'; // stand in for a real folder: the picker cannot be clicked by a test
+      await window.SVS.adoptFolder(backend);
+    });
+    await page.waitForSelector('.tree-empty', { timeout: 10000 });
+
+    // The header's New File icon only appears on hover, and an empty panel gives you nothing
+    // to hover. These two must be visible on their own.
+    assert.ok(await page.locator('.tree-empty [data-command="new-file"]').isVisible());
+    assert.ok(await page.locator('.tree-empty [data-command="new-folder"]').isVisible());
+    assert.match(await page.textContent('#editor-placeholder'), /hello is empty/);
+    assert.ok(await page.locator('#editor-placeholder [data-command="new-file"]').isVisible());
+    await page.screenshot({ path: path.join(SHOTS, 'empty-folder.png') });
+  });
+
+  await step('a file made in an empty folder opens, saves and clears the empty state', async () => {
+    await page.click('.tree-empty [data-command="new-file"]');
+    await page.fill('.tree-input', 'index.html');
+    await page.press('.tree-input', 'Enter');
+    await page.waitForSelector('.tab.active:has-text("index.html")', { timeout: 10000 });
+
+    await page.click('.monaco-editor .view-lines');
+    await page.keyboard.type('<h1>made from nothing</h1>');
+    await page.keyboard.press('Control+s');
+    await page.waitForSelector('.tab.active:not(.dirty)', { timeout: 10000 });
+    assert.match(await page.evaluate(() => window.SVS.fs.readText('index.html')), /made from nothing/);
+
+    // The hint must go once there is something to show; a DocumentFragment empties itself when
+    // it is appended, so "is the tree empty?" is easy to get wrong here.
+    assert.equal(await page.locator('.tree-empty').count(), 0, 'the empty-folder hint should be gone');
+    assert.equal(await page.locator('.tree-row[data-path]').count(), 1);
+  });
+
+  await step('folders but no files says so, rather than claiming the folder is empty', async () => {
+    await page.evaluate(async () => {
+      const memory = await import('/js/fs/memory.js');
+      const backend = memory.fromFiles('shapes', {}, { readOnly: false, sample: false });
+      backend.kind = 'native';
+      await window.SVS.adoptFolder(backend);
+    });
+    await page.waitForSelector('.tree-empty', { timeout: 10000 });
+    await page.click('.tree-empty [data-command="new-folder"]');
+    await page.fill('.tree-input', 'css');
+    await page.press('.tree-input', 'Enter');
+    await page.waitForFunction(() => document.querySelectorAll('.tree-row[data-path]').length === 1, null, { timeout: 10000 });
+
+    assert.equal(await page.locator('.tree-empty').count(), 0, 'the folder is no longer blank');
+    assert.match(await page.textContent('#editor-placeholder'), /No files in shapes yet/);
+  });
+
+  await step('a folder with only folders can still be packed up', async () => {
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('#status-folder'),
+    ]);
+    const entries = readZip(readFileSync(await download.path()));
+    assert.ok(entries.has('shapes/css/'), `the empty folder should survive, got ${[...entries.keys()]}`);
+    assert.match(await page.textContent('#toasts'), /1 empty folder/);
+  });
+
+  await step('picking an empty folder where the browser cannot see one offers to start it', async () => {
+    const withoutFileSystemAccess = await context.newPage();
+    await withoutFileSystemAccess.addInitScript((base) => {
+      window.SVS_MONACO_BASE = base;
+      window.SVS_DEBUG = true;
+      delete window.showDirectoryPicker; // what Firefox and Safari look like
+      delete window.showSaveFilePicker;
+    }, `${BASE}/tests/node_modules/monaco-editor/min`);
+    withoutFileSystemAccess.on('filechooser', () => {}); // hold the hidden input's chooser open
+    await withoutFileSystemAccess.goto(`${BASE}/index.html`);
+    await withoutFileSystemAccess.waitForSelector('.monaco-editor .view-lines', { timeout: 30000 });
+    await withoutFileSystemAccess.waitForSelector('#btn-open-folder:not([disabled])');
+
+    // An empty folder reaches the fallback picker as a change event with no files at all —
+    // which must not be mistaken for the user cancelling.
+    await withoutFileSystemAccess.evaluate(() => {
+      window.SVS.runCommand('open-folder');
+      document.getElementById('folder-input').dispatchEvent(new Event('change'));
+    });
+    await withoutFileSystemAccess.waitForSelector('dialog[open]', { timeout: 10000 });
+    assert.match(await withoutFileSystemAccess.textContent('dialog[open]'), /That folder is empty/);
+
+    // A name the file system would reject keeps the box open and says why.
+    await withoutFileSystemAccess.fill('.dialog-input', 'bad/name');
+    await withoutFileSystemAccess.click('.dialog-confirm');
+    assert.equal(await withoutFileSystemAccess.locator('dialog[open]').count(), 1);
+    assert.match(await withoutFileSystemAccess.textContent('.dialog-error'), /cannot contain/);
+
+    await withoutFileSystemAccess.fill('.dialog-input', 'my-project');
+    await withoutFileSystemAccess.click('.dialog-confirm');
+    await withoutFileSystemAccess.waitForSelector('.tree-empty', { timeout: 10000 });
+    assert.equal(await withoutFileSystemAccess.textContent('#status-folder'), 'my-project');
+
+    // Build it up and take it away as a zip: the whole point of starting one here.
+    await withoutFileSystemAccess.click('.tree-empty [data-command="new-file"]');
+    await withoutFileSystemAccess.fill('.tree-input', 'notes.txt');
+    await withoutFileSystemAccess.press('.tree-input', 'Enter');
+    await withoutFileSystemAccess.waitForSelector('.tab.active:has-text("notes.txt")', { timeout: 10000 });
+    await withoutFileSystemAccess.click('.monaco-editor .view-lines');
+    await withoutFileSystemAccess.keyboard.type('started from an empty folder');
+    await withoutFileSystemAccess.keyboard.press('Control+s');
+    await withoutFileSystemAccess.waitForFunction(
+      () => document.getElementById('status-folder').textContent.includes('not on your disk'),
+      null, { timeout: 10000 },
+    );
+
+    const [download] = await Promise.all([
+      withoutFileSystemAccess.waitForEvent('download'),
+      withoutFileSystemAccess.click('#status-folder'),
+    ]);
+    assert.equal(download.suggestedFilename(), 'my-project.zip');
+    const entries = readZip(readFileSync(await download.path()));
+    assert.match(entries.get('my-project/notes.txt').toString('utf8'), /started from an empty folder/);
+    await withoutFileSystemAccess.screenshot({ path: path.join(SHOTS, 'empty-folder-fallback.png') });
+    await withoutFileSystemAccess.close();
+  });
+
   await step('no JavaScript errors were thrown by the page', async () => {
     const report = pageErrors.map((e) => `[during "${e.step}"] ${e.message}\n${e.stack}`).join('\n\n');
     assert.equal(pageErrors.length, 0, `Page errors:\n${report}`);

@@ -2,7 +2,7 @@
 // one Monaco "model" per open file, the active tab, dirty flags and saving.
 
 import { CONFIG } from './config.js';
-import { state, emit } from './state.js';
+import { state, emit, on } from './state.js';
 import * as fs from './fs/index.js';
 import { fontById } from './fonts.js';
 import { toast } from './toast.js';
@@ -88,6 +88,10 @@ export async function initEditor(editorEl, placeholder) {
   });
 
   editor.onDidChangeCursorPosition((e) => emit('cursor', e.position));
+  // The placeholder describes the open folder, so it has to be redrawn when that changes —
+  // an empty folder says something quite different from one with files in it.
+  on('tree', refreshPlaceholder);
+  on('folder', refreshPlaceholder);
   showPlaceholder(emptyPlaceholder());
   state.editorReady = true;
   emit('editor-ready', { monaco, editor });
@@ -118,18 +122,56 @@ function hidePlaceholder() {
   placeholderEl.hidden = true;
 }
 
-function emptyPlaceholder() {
-  return `
-    <div class="placeholder-content">
-      <div class="placeholder-logo">${icons.logo}</div>
-      <h2>${escapeHtml(CONFIG.appName)}</h2>
-      <p>Open a file from the Explorer to start editing.</p>
+/** Redraw the placeholder when the folder behind it changed, unless a file is on screen. */
+function refreshPlaceholder() {
+  if (!placeholderEl || state.activePath) return;
+  showPlaceholder(emptyPlaceholder());
+}
+
+const SHORTCUTS_HTML = `
       <div class="shortcuts">
         <span>Save file</span><span><kbd>Ctrl</kbd> + <kbd>S</kbd></span>
         <span>Toggle sidebar</span><span><kbd>Ctrl</kbd> + <kbd>B</kbd></span>
         <span>Toggle bottom panel</span><span><kbd>Ctrl</kbd> + <kbd>J</kbd></span>
         <span>Settings</span><span><kbd>Ctrl</kbd> + <kbd>,</kbd></span>
-      </div>
+      </div>`;
+
+/** True when the open folder holds no file anywhere — empty subfolders do not count. */
+function folderHasNoFiles() {
+  if (!state.tree) return false;
+  const anyFile = (node) => (node.kind === 'file' ? true : (node.children || []).some(anyFile));
+  return !anyFile(state.tree);
+}
+
+function emptyPlaceholder() {
+  // "Open a file from the Explorer" is no help when the Explorer has none to open.
+  if (state.folder && folderHasNoFiles()) return startHerePlaceholder();
+  return `
+    <div class="placeholder-content">
+      <div class="placeholder-logo">${icons.logo}</div>
+      <h2>${escapeHtml(CONFIG.appName)}</h2>
+      <p>Open a file from the Explorer to start editing.</p>${SHORTCUTS_HTML}
+    </div>`;
+}
+
+/** What an empty folder shows: no files to list, so offer the way to make one. */
+function startHerePlaceholder() {
+  const onDisk = state.folder.kind === 'native';
+  const name = escapeHtml(state.folder.name);
+  // Folders but no files is not the same as nothing at all, and the Explorer shows the
+  // difference, so the heading should not contradict it.
+  const bare = !state.tree || !state.tree.children.length;
+  return `
+    <div class="placeholder-content">
+      <div class="placeholder-logo">${icons.newFile}</div>
+      <h2>${bare ? `${name} is empty` : `No files in ${name} yet`}</h2>
+      <p>${onDisk
+        ? 'Make the first file and it is written straight into that folder on your disk.'
+        : 'Make the first file here. It stays in the editor, and Save Folder downloads the whole folder as a zip.'}</p>
+      <div class="placeholder-actions">
+        <button class="btn" data-command="new-file">New File</button>
+        <button class="btn btn-secondary" data-command="new-folder">New Folder</button>
+      </div>${SHORTCUTS_HTML}
     </div>`;
 }
 

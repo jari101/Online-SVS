@@ -30,8 +30,11 @@ Open the site in **Chrome, Edge, Opera or Brave** for the full experience.
    The text is remembered in your own browser (localStorage), so a refresh does not lose it.
 2. Click **Open Folder** and pick a folder from your computer. The browser asks for permission once.
    Edit files, then press **Ctrl+S** to write them straight back to your disk.
-3. No folder handy? Use **Open Folder ▾ → Open Sample Project** for a small website that lives in memory.
-4. Come back later and the bar under the title bar offers your last folder: **Reopen** puts it
+3. **An empty folder is a fine place to start.** Pick one with nothing in it and the Explorer
+   offers **New File** and **New Folder** where the file list would be. Everything you make goes
+   straight into that folder on your disk.
+4. No folder handy? Use **Open Folder ▾ → Open Sample Project** for a small website that lives in memory.
+5. Come back later and the bar under the title bar offers your last folder: **Reopen** puts it
    back, along with the files you had open and the line each one was on.
 
 Firefox and Safari do not have the File System Access API — there is no way for any website to
@@ -46,6 +49,19 @@ in a pile in your Downloads folder. How that happens depends on what your browse
 
 **A folder you opened (Chrome, Edge, Opera, Brave).** `Ctrl+S` writes straight into the same
 file, in the same subfolder, of the same folder on your disk. Nothing to think about.
+
+**A folder that starts out empty.** There is nothing to click in an empty Explorer, so it shows
+the way out instead of a blank panel:
+
+> This folder is empty.
+> `[ New File ]` `[ New Folder ]`
+
+The same two buttons appear in the middle of the screen, where "Open a file from the Explorer"
+would otherwise be telling you to open a file that does not exist. Anything you make is created
+in the real folder immediately — a new file is on your disk before you have typed a character —
+and `Ctrl+S` keeps it there. Once the folder has something in it, the buttons step aside and the
+normal file tree takes over. (A folder holding only empty subfolders says *No files yet* rather
+than claiming to be empty, because the Explorer is plainly showing you otherwise.)
 
 **Coming back later.** The browser can hand out a *handle* to a folder you picked, and a handle
 still points at that folder tomorrow. Online SVS keeps the last one in your browser's own
@@ -64,6 +80,12 @@ that it has a home: the tab stops saying `untitled` and shows the real file name
 `Ctrl+S` writes straight back to that file — including after a refresh. **Open Folder ▾ → Save
 As…** (or `Ctrl+Shift+S` in scratch mode) moves it somewhere else. Changing the language lets go
 of the home, because `main.cpp` should not quietly start receiving Python.
+
+**An empty folder in Firefox or Safari.** Those browsers see a folder only through the files
+inside it, so an empty one is invisible to them — not even its name comes through. Rather than
+looking as though the picker was cancelled, Online SVS says so and offers to start a folder here
+instead: you give it a name, make the files, and **Save Folder** hands the whole thing back as a
+zip you can unzip wherever you want it.
 
 **Firefox and Safari, and the sample project.** These cannot be written to at all, so saving keeps
 the edit in the editor's copy of the folder and the status bar says **· not on your disk yet** in
@@ -220,7 +242,7 @@ js/live.js            live server: syncs files into the cache, error gating, rel
 js/runner.js          Run button: talks to the Piston service and renders the output
 js/recent.js          remembers the last folder and its tabs; the "Reopen hello" bar
 js/saving.js          the scratch file's home on disk, and Save Folder as a zip
-js/dialog.js          confirmation dialog (native <dialog>) with verb-first buttons
+js/dialog.js          confirmation and name-prompt boxes (native <dialog>) with verb-first buttons
 js/toast.js           notifications; errors stay until dismissed
 js/statusbar.js       the blue status bar
 js/languages.js       the languages you can write and run, starter programs, companion-file rules
@@ -249,9 +271,11 @@ copy of Monaco later is a one-line change and needs no other edits.
 `tests/smoke.spec.mjs` starts a local server, opens the app in headless Chromium and clicks
 through the main features: scratch mode, folders, keyboard navigation, the confirmation dialog,
 the live server (preview, CSS hot swap, pausing on errors, the new-tab URL, 404 page, stop),
-the Run button against a stand-in for the Piston service, and saving work back where it came
-from (the zip a folder is packed into, the scratch file's home on disk, the reopen bar and
-putting tabs back with their cursors).
+the Run button against a stand-in for the Piston service, saving work back where it came from
+(the zip a folder is packed into, the scratch file's home on disk, the reopen bar and putting
+tabs back with their cursors), and starting from an empty folder (the buttons that replace the
+blank panel, making the first file in it, and the fallback when the browser cannot see an empty
+folder at all).
 
 Two things the browser will not let a test drive: the folder picker and the Save dialog, since
 both need a real person. The Save dialog is stood in for, and reopening a folder is exercised

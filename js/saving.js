@@ -137,8 +137,8 @@ export async function saveFolderZip() {
 
   await saveAll(); // so the zip holds what you see, not what was last written
   const { name, files, dirs } = await fs.snapshot();
-  if (!files.length) {
-    toast(`"${name}" has no files to save.`, 'warning');
+  if (!files.length && !dirs.length) {
+    toast(`"${name}" is empty — make a file in the Explorer first, then Save Folder packs it up.`, 'warning', 5000);
     return;
   }
 
@@ -146,7 +146,10 @@ export async function saveFolderZip() {
   downloadBlob(zipName, blob);
   markNeedsExport(false);
 
-  const count = `${files.length} file${files.length === 1 ? '' : 's'}`;
+  // A folder can be worth keeping before it has any files in it: the shape is the work so far.
+  const count = files.length
+    ? `${files.length} file${files.length === 1 ? '' : 's'}`
+    : `${dirs.length} empty folder${dirs.length === 1 ? '' : 's'}`;
   if (state.folder?.kind === 'native') {
     toast(`Downloaded ${zipName} — a copy of "${name}" with all ${count}.`, 'success', 5000);
   } else {

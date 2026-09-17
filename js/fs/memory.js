@@ -123,8 +123,16 @@ function buildTree(rootName, entries, dirs) {
 }
 
 /**
+ * Returned by pickWithInput when a folder was chosen but held no files. This picker sees a
+ * folder only through the files in it, so an empty one arrives as an empty list — the same
+ * thing an unreadable folder would look like, but *not* the same as cancelling, which fires
+ * the input's own "cancel" event.
+ */
+export const EMPTY_PICK = Object.freeze({ emptyFolder: true });
+
+/**
  * Fallback folder picker: a hidden <input type="file" webkitdirectory>.
- * Resolves to a read-only memory backend, or null when the user cancels.
+ * Resolves to a read-only memory backend, EMPTY_PICK, or null when the user cancels.
  */
 export function pickWithInput(input) {
   return new Promise((resolve) => {
@@ -137,7 +145,7 @@ export function pickWithInput(input) {
       const files = [...input.files];
       input.value = '';
       if (!files.length) {
-        resolve(null);
+        resolve(EMPTY_PICK);
         return;
       }
 

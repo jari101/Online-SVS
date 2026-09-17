@@ -164,6 +164,12 @@ function renderTree() {
   renderChildren(state.tree, 0, fragment);
   tree.appendChild(fragment);
 
+  // An empty folder would otherwise be a blank panel: the only way to make a file is the
+  // header's New File icon, which stays hidden until you happen to hover the sidebar. Put
+  // the same two actions where the files would have been. (Ask the tree, not the fragment:
+  // appending a fragment moves its children out, leaving it empty whatever it held.)
+  if (!tree.childElementCount && !creating) tree.appendChild(renderTreeEmpty());
+
   // Exactly one row is in the Tab order: the focused one, or the first row.
   const allRows = [...tree.querySelectorAll('.tree-row[data-path]')];
   const focusRow = allRows.find((r) => r.dataset.path === focusedPath) || allRows[0];
@@ -183,6 +189,21 @@ function renderChildren(dirNode, depth, fragment) {
     fragment.appendChild(renderRow(node, depth));
     if (node.kind === 'dir' && expanded.has(node.path)) renderChildren(node, depth + 1, fragment);
   }
+}
+
+function renderTreeEmpty() {
+  const box = el('div', 'tree-empty');
+  const writable = state.folder && state.folder.kind === 'native';
+  box.innerHTML = `
+    <p class="muted">This folder is empty.</p>
+    <div class="tree-empty-actions">
+      <button class="btn" data-command="new-file">New File</button>
+      <button class="btn btn-secondary" data-command="new-folder">New Folder</button>
+    </div>
+    <p class="muted small">${writable
+      ? 'What you make here is written straight into the folder on your disk.'
+      : 'What you make here stays in the editor. Save Folder downloads it as a zip.'}</p>`;
+  return box;
 }
 
 function renderRow(node, depth) {

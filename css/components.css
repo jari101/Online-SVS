@@ -244,6 +244,13 @@ select:focus, input:focus, textarea:focus { border-color: var(--focus); outline:
 #view-explorer:hover .tree-actions, #view-explorer:focus-within .tree-actions { display: flex; }
 .tree-actions .icon-btn { width: 24px; height: 24px; }
 .tree { flex: 1; overflow: auto; padding-bottom: 20px; outline: none; }
+
+/* What an empty folder shows where its files would be. The header's New File icon appears
+   only on hover, which is no help at all when there is nothing in the panel to hover over. */
+.tree-empty { display: flex; flex-direction: column; gap: 10px; padding: 12px 12px 0; }
+.tree-empty p { margin: 0; line-height: 1.5; }
+.tree-empty-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.tree-empty-actions .btn { flex: 1; min-width: 92px; justify-content: center; }
 .tree-row {
   display: flex;
   align-items: center;
@@ -339,6 +346,7 @@ select:focus, input:focus, textarea:focus { border-color: var(--focus); outline:
 .placeholder-logo svg { width: 96px; height: 96px; }
 .placeholder-content h2 { margin: 0 0 8px; color: var(--fg); font-weight: 500; font-size: 20px; text-wrap: balance; }
 .placeholder-content p { margin: 6px 0; line-height: 1.5; }
+.placeholder-actions { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
 .shortcuts { display: grid; grid-template-columns: auto auto; gap: 6px 16px; justify-content: center; margin-top: 16px; text-align: start; }
 .shortcuts kbd {
   font-family: var(--font-ui);
@@ -506,6 +514,10 @@ button.status-item:focus-visible { outline: 1px solid var(--fg-bright); outline-
 .dialog::backdrop { background: var(--bg-backdrop); }
 .dialog-title { margin: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--fg-bright); text-wrap: balance; }
 .dialog-message { margin: 0 0 20px; line-height: 1.5; }
+.dialog-field { display: flex; flex-direction: column; gap: 5px; margin: 0 0 16px; }
+.dialog-field-label { font-weight: 600; }
+.dialog-input { height: 28px; padding: 0 8px; }
+.dialog-error { margin: -8px 0 16px; color: var(--error); line-height: 1.4; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-actions .btn { height: 28px; padding: 0 14px; }
 

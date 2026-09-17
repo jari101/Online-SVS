@@ -51,6 +51,20 @@ export function folderHandle() {
   return backend?.handle || null;
 }
 
+/**
+ * A brand-new, empty folder that lives in the editor only. Used where the browser cannot
+ * open an empty folder from the disk; Save Folder turns it into a zip once it has something
+ * in it.
+ */
+export function newFolder(name) {
+  return memory.fromFiles(name, {}, { readOnly: false, sample: false });
+}
+
+/** True for the marker pickFolder() returns when the chosen folder held no files. */
+export function isEmptyPick(value) {
+  return Boolean(value && value.emptyFolder);
+}
+
 /** A fresh copy of the built-in sample website. */
 export function sampleFolder() {
   return memory.fromFiles(SAMPLE_NAME, SAMPLE_FILES, { readOnly: false, sample: true });
