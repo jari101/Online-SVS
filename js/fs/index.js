@@ -38,6 +38,19 @@ export async function pickFolder() {
   return memory.pickWithInput(document.getElementById('folder-input'));
 }
 
+/**
+ * Build a backend around a folder handle remembered from an earlier visit, so the same
+ * folder on disk opens again without going through the picker. Native browsers only.
+ */
+export function folderFromHandle(handle) {
+  return native.fromHandle(handle);
+}
+
+/** The handle of the open folder, when there is one that can be remembered. */
+export function folderHandle() {
+  return backend?.handle || null;
+}
+
 /** A fresh copy of the built-in sample website. */
 export function sampleFolder() {
   return memory.fromFiles(SAMPLE_NAME, SAMPLE_FILES, { readOnly: false, sample: true });
@@ -56,3 +69,27 @@ export const createFile = (dir, name) => need().createFile(dir, name);
 export const createDir = (dir, name) => need().createDir(dir, name);
 export const exists = (path) => need().exists(path);
 export const remove = (path) => need().remove(path);
+
+/**
+ * Everything in the open folder, ready to be packed into a zip: the bytes of every file and
+ * the path of every folder (so an empty folder survives the round trip too).
+ */
+export async function snapshot() {
+  const backend = need();
+  const filePaths = [];
+  const dirs = [];
+  (function walk(node) {
+    if (node.kind === 'file') {
+      filePaths.push(node.path);
+      return;
+    }
+    if (node.path) dirs.push(node.path);
+    for (const child of node.children) walk(child);
+  })(await backend.tree());
+
+  const files = [];
+  for (const path of filePaths) {
+    files.push({ path, data: new Uint8Array(await backend.readBinary(path)) });
+  }
+  return { name: backend.name, files, dirs };
+}

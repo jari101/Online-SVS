@@ -4,9 +4,18 @@
 import { state, on } from './state.js';
 import { icons, fileTypeClass } from './icons.js';
 import { activateFile, closeFile } from './editor.js';
+import { scratchHome, supportsSaveAs } from './saving.js';
 import { escapeHtml, el } from './dom.js';
 
 let host = null;
+
+/** What the scratch tab says on hover: where Ctrl+S will put it. */
+function scratchTitle() {
+  const home = scratchHome();
+  if (home) return `Kept in this browser · Ctrl+S saves back to ${home.name}`;
+  if (supportsSaveAs) return 'Scratch file — kept in this browser. Ctrl+S asks where to save it on your disk.';
+  return 'Scratch file — kept in this browser. Ctrl+S downloads it (this browser cannot save to a folder you pick).';
+}
 
 export function initTabs(container) {
   host = container;
@@ -31,7 +40,7 @@ function render() {
     if (isActive) tab.classList.add('active');
     if (file.dirty) tab.classList.add('dirty');
     if (file.scratch) tab.classList.add('scratch');
-    tab.title = file.scratch ? 'Scratch file — kept in this browser, download it with Ctrl+S' : file.path;
+    tab.title = file.scratch ? scratchTitle() : file.path;
 
     const closeLabel = file.dirty ? `Close ${file.name} (unsaved changes)` : `Close ${file.name}`;
     tab.innerHTML = `

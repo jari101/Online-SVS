@@ -148,6 +148,30 @@ select:focus, input:focus, textarea:focus { border-color: var(--focus); outline:
 .menu-list button:hover:not(:disabled) { background: var(--bg-list-active); color: var(--fg-bright); }
 .menu-separator { height: 1px; margin: 4px 8px; background: var(--border-strong); }
 
+/* ---------- "Reopen your last folder" bar ----------
+   It sits right under the title bar and continues its colour, with the app's accent blue
+   along the bottom so the eye catches it without it shouting. */
+.reopen-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: var(--bg-titlebar);
+  border-bottom: 2px solid var(--accent);
+}
+.reopen-bar .reopen-icon { display: inline-flex; color: var(--accent); }
+.reopen-bar .reopen-icon svg { width: 16px; height: 16px; }
+.reopen-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reopen-text strong { color: var(--fg-bright); }
+.reopen-files { color: var(--fg-muted); }
+
 /* ---------- Activity bar ---------- */
 #activitybar {
   display: flex;

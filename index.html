@@ -27,10 +27,14 @@
 
       <div class="menu" id="open-menu">
         <button id="btn-open-folder" class="btn btn-secondary" title="Open a folder from your computer" disabled>Open Folder</button>
-        <button id="btn-open-menu" class="btn btn-secondary btn-caret" aria-label="More open options" aria-haspopup="menu" aria-expanded="false" aria-controls="open-menu-list" data-icon="chevronDown"></button>
+        <button id="btn-open-menu" class="btn btn-secondary btn-caret" aria-label="More file and folder options" aria-haspopup="menu" aria-expanded="false" aria-controls="open-menu-list" data-icon="chevronDown"></button>
         <ul class="menu-list" id="open-menu-list" role="menu" hidden>
           <li role="none"><button role="menuitem" data-command="open-folder">Open Folder…</button></li>
           <li role="none"><button role="menuitem" data-command="open-sample">Open Sample Project</button></li>
+          <li role="none"><button role="menuitem" data-command="reopen-folder" id="menu-reopen-folder" hidden>Reopen last folder</button></li>
+          <li class="menu-separator" role="separator"></li>
+          <li role="none"><button role="menuitem" data-command="save-as" id="menu-save-as" hidden>Save As…</button></li>
+          <li role="none"><button role="menuitem" data-command="save-folder" id="menu-save-folder" hidden>Save Folder as .zip…</button></li>
           <li class="menu-separator" role="separator"></li>
           <li role="none"><button role="menuitem" data-command="close-folder" id="menu-close-folder" disabled>Close Folder</button></li>
         </ul>
@@ -57,6 +61,15 @@
       <button id="btn-settings" class="icon-btn" title="Settings (Ctrl+,)" aria-label="Settings" data-icon="gear"></button>
     </div>
   </header>
+
+  <!-- ===== "Reopen the folder you had last time" ===== -->
+  <section id="reopen-bar" class="reopen-bar" aria-label="Reopen your last folder" hidden>
+    <span class="reopen-icon" data-icon="folderOpen" aria-hidden="true"></span>
+    <p class="reopen-text">Last folder: <strong id="reopen-name"></strong> <span id="reopen-files" class="reopen-files"></span></p>
+    <button id="btn-reopen" class="btn">Reopen</button>
+    <button id="btn-reopen-forget" class="btn btn-secondary" title="Remove it from this browser's memory. The folder itself is not touched.">Forget</button>
+    <button id="btn-reopen-dismiss" class="icon-btn" data-icon="close" title="Hide this" aria-label="Hide the reopen bar"></button>
+  </section>
 
   <!-- ===== Main area ===== -->
   <div id="main">
@@ -140,7 +153,7 @@
   <footer id="statusbar">
     <div class="status-left">
       <button id="status-live" class="status-item" title="Live server status"><span data-icon="bolt" aria-hidden="true"></span><span id="status-live-text">Live: off</span></button>
-      <span id="status-folder" class="status-item">No folder open</span>
+      <button id="status-folder" class="status-item">No folder open</button>
     </div>
     <div class="status-right">
       <span id="status-cursor" class="status-item">Ln 1, Col 1</span>

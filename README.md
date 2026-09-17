@@ -1,10 +1,13 @@
 # Online SVS
 
-A code editor that runs in your browser, in the spirit of OnlineGDB, with three things
+A code editor that runs in your browser, in the spirit of OnlineGDB, with four things
 OnlineGDB does not have:
 
 - **Work on a whole folder** from your PC, with a VS Code-style explorer, tabs and editor.
 - **Live Server**: preview a website as you type and see it reload, like the VS Code extension. *(Phase 2)*
+- **Everything goes back where it came from.** Files save into the folder you opened them from,
+  that folder is offered again on your next visit, and even the scratch file can be given a
+  home on your disk. *(Phase 5)*
 - **Nothing is stored on the website.** Your files stay on your computer. There are no accounts and no uploads.
 
 Plus the classic OnlineGDB part: pick a language, write a program, press **Run** and read the output. *(Phase 3)*
@@ -17,6 +20,7 @@ Plus the classic OnlineGDB part: pick a language, write a program, press **Run**
 | 2 | Live server (Service Worker), preview panel, refresh-on-type when the code has no errors | **done** |
 | 3 | Run button for C, C++, Python, Java, JavaScript and more via the Piston API, stdin input | **done** |
 | 4 | Polish: search, rename/delete, quick open, image preview, more settings | planned |
+| 5 | Saving back where it came from: reopen your last folder and its tabs, a home on disk for the scratch file, Save Folder as a zip | **done** |
 
 ## Try it
 
@@ -27,9 +31,51 @@ Open the site in **Chrome, Edge, Opera or Brave** for the full experience.
 2. Click **Open Folder** and pick a folder from your computer. The browser asks for permission once.
    Edit files, then press **Ctrl+S** to write them straight back to your disk.
 3. No folder handy? Use **Open Folder ▾ → Open Sample Project** for a small website that lives in memory.
+4. Come back later and the bar under the title bar offers your last folder: **Reopen** puts it
+   back, along with the files you had open and the line each one was on.
 
-Firefox and Safari do not have the File System Access API, so there a folder opens **read-only** and
-Ctrl+S downloads the edited file instead.
+Firefox and Safari do not have the File System Access API — there is no way for any website to
+write to your disk in those browsers — so a folder opens **read-only** there. Your edits are kept
+in the editor and **Save Folder** packs the whole folder back into `<folder>.zip` for you to unzip
+over the original. See [Saving back where it came from](#saving-back-where-it-came-from).
+
+### Saving back where it came from
+
+The point of this part is simple: what you edited should end up in the folder it came from, not
+in a pile in your Downloads folder. How that happens depends on what your browser allows.
+
+**A folder you opened (Chrome, Edge, Opera, Brave).** `Ctrl+S` writes straight into the same
+file, in the same subfolder, of the same folder on your disk. Nothing to think about.
+
+**Coming back later.** The browser can hand out a *handle* to a folder you picked, and a handle
+still points at that folder tomorrow. Online SVS keeps the last one in your browser's own
+database, so on your next visit a bar appears under the title bar:
+
+> 📂 Last folder: **hello** · 3 files open   [ Reopen ] [ Forget ]
+
+**Reopen** opens `hello` again, puts back the tabs you had and sets each cursor where you left
+it; saving then writes into `hello` exactly as before. It needs the click — Chrome asks for
+permission again on every visit and will only ask during a real click, which is also why nothing
+reopens by itself. **Forget** wipes it from the browser; your folder is not touched. The same
+entry lives in the **Open Folder ▾** menu once the bar has been dismissed.
+
+**The scratch file.** It belongs to no folder, so the first `Ctrl+S` asks where to put it. After
+that it has a home: the tab stops saying `untitled` and shows the real file name, and every later
+`Ctrl+S` writes straight back to that file — including after a refresh. **Open Folder ▾ → Save
+As…** (or `Ctrl+Shift+S` in scratch mode) moves it somewhere else. Changing the language lets go
+of the home, because `main.cpp` should not quietly start receiving Python.
+
+**Firefox and Safari, and the sample project.** These cannot be written to at all, so saving keeps
+the edit in the editor's copy of the folder and the status bar says **· not on your disk yet** in
+yellow until you do something about it. That something is **Save Folder** — the folder item in the
+status bar, or **Open Folder ▾ → Save Folder as .zip…** — which downloads `hello.zip` containing
+`hello/` with every file in its own subfolder. Unzip it next to the original and everything lands
+back where it started. Closing the folder or the tab with edits still waiting warns you first.
+Save Folder works in Chrome too, as a quick way to take a copy of the whole folder.
+
+The zip is written by `js/fs/zip.js` in about ninety lines, with no library. Entries are stored
+rather than compressed, so the file is a little larger than a normal zip but every unzip program
+reads it.
 
 ### Live Server
 
@@ -98,7 +144,7 @@ Two things to know:
 |---|---|
 | Ctrl + Enter | Run the current file |
 | Ctrl + S | Save the current file |
-| Ctrl + Shift + S | Save all files |
+| Ctrl + Shift + S | Save all files — in the scratch file, Save As… |
 | Ctrl + B | Show / hide the sidebar |
 | Ctrl + J | Show / hide the bottom panel |
 | Ctrl + Shift + E | Explorer |
@@ -172,11 +218,15 @@ js/layout.js          dividers, sidebar/panel/preview toggles
 js/panel.js           Output / Input / Problems panel
 js/live.js            live server: syncs files into the cache, error gating, reload messages, preview panel
 js/runner.js          Run button: talks to the Piston service and renders the output
+js/recent.js          remembers the last folder and its tabs; the "Reopen hello" bar
+js/saving.js          the scratch file's home on disk, and Save Folder as a zip
 js/dialog.js          confirmation dialog (native <dialog>) with verb-first buttons
 js/toast.js           notifications; errors stay until dismissed
 js/statusbar.js       the blue status bar
 js/languages.js       the languages you can write and run, starter programs, companion-file rules
 js/fs/index.js        one API for files; native.js = File System Access, memory.js = in-memory fallback + sample
+js/fs/handles.js      stores folder and file handles in IndexedDB so they survive a visit
+js/fs/zip.js          builds a .zip in the browser, no library (uncompressed entries)
 tests/                automated browser test (see below)
 ```
 
@@ -199,7 +249,13 @@ copy of Monaco later is a one-line change and needs no other edits.
 `tests/smoke.spec.mjs` starts a local server, opens the app in headless Chromium and clicks
 through the main features: scratch mode, folders, keyboard navigation, the confirmation dialog,
 the live server (preview, CSS hot swap, pausing on errors, the new-tab URL, 404 page, stop),
-and the Run button against a stand-in for the Piston service.
+the Run button against a stand-in for the Piston service, and saving work back where it came
+from (the zip a folder is packed into, the scratch file's home on disk, the reopen bar and
+putting tabs back with their cursors).
+
+Two things the browser will not let a test drive: the folder picker and the Save dialog, since
+both need a real person. The Save dialog is stood in for, and reopening a folder is exercised
+through the debug hook (`window.SVS`, only present with `?debug`).
 
 ```bash
 cd tests
@@ -212,6 +268,11 @@ npm test
 
 - Files are read from and written to **your** disk through the browser's File System Access API.
 - The scratch file and your settings are kept in **your browser's** localStorage.
+- So that your last folder can be offered again, **your browser's** IndexedDB keeps the *handle*
+  it gave out for that folder (and for the scratch file's home, if you gave it one). A handle is
+  not a path and holds nothing readable: it only means anything inside your own browser, it is
+  never sent anywhere, and the browser asks your permission again on every visit before it opens
+  anything. **Forget** on the reopen bar deletes it.
 - While the live server runs, copies of your files sit in **your browser's** cache so the preview can load them. They are removed when you stop the server, close the folder or reload the app.
 - Pressing **Run** is the one exception: the file you are running, the helper files beside it and your Input text are sent to the Piston service so it can run them. The Output tab names every file that was sent. Data files and anything that looks like a secret are held back. Nothing is sent until you press Run.
 - There is no account, no tracking and no server-side storage of any kind.

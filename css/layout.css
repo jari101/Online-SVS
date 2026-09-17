@@ -21,17 +21,25 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* The whole app is one vertical grid: title bar / main / status bar. */
+/* The whole app is one vertical grid: title bar / reopen bar / main / status bar.
+   Each region names its own row. That matters because the reopen bar is `display: none`
+   nearly always, and a hidden child leaves the grid flow entirely — without the explicit
+   rows below, everything under it would slide up one row and the editor would lose its
+   "take the rest of the height" row. */
 #app {
   --sidebar-w: 260px;
   --preview-w: 40%;
   --panel-h: 220px;
 
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) var(--statusbar-h);
+  grid-template-rows: auto auto minmax(0, 1fr) var(--statusbar-h);
   height: 100vh;
   width: 100vw;
 }
+#titlebar   { grid-row: 1; }
+#reopen-bar { grid-row: 2; }
+#main       { grid-row: 3; }
+#statusbar  { grid-row: 4; }
 
 /* Main row: activity bar | sidebar | divider | workbench */
 #main {

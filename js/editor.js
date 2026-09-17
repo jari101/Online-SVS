@@ -7,7 +7,7 @@ import * as fs from './fs/index.js';
 import { fontById } from './fonts.js';
 import { toast } from './toast.js';
 import { icons } from './icons.js';
-import { escapeHtml, downloadText } from './dom.js';
+import { escapeHtml } from './dom.js';
 import { confirmDialog } from './dialog.js';
 
 /** The pseudo-path of the scratch file (it does not exist on disk). */
@@ -173,8 +173,12 @@ function watchModel(entry) {
   });
 }
 
-/** Open a file from the current folder in a tab (reads it from disk the first time). */
-export function openFile(path, { activate = true } = {}) {
+/**
+ * Open a file from the current folder in a tab (reads it from disk the first time).
+ * `position` puts the cursor somewhere other than the start — that is how a reopened
+ * folder puts you back on the line you were last looking at.
+ */
+export function openFile(path, { activate = true, position = null } = {}) {
   const existing = findEntry(path);
   if (existing) {
     if (activate) activateFile(path);
@@ -202,6 +206,7 @@ export function openFile(path, { activate = true } = {}) {
         dirty: false,
         savedVersion: model.getAlternativeVersionId(),
         viewState: null,
+        pendingPosition: position,
       };
       watchModel(entry);
     }
@@ -239,7 +244,13 @@ export function activateFile(path) {
   state.activePath = path;
   if (entry.kind === 'text') {
     editor.setModel(entry.model);
-    if (entry.viewState) editor.restoreViewState(entry.viewState);
+    if (entry.viewState) {
+      editor.restoreViewState(entry.viewState);
+    } else if (entry.pendingPosition) {
+      editor.setPosition(entry.pendingPosition);
+      editor.revealLineInCenter(entry.pendingPosition.lineNumber);
+      entry.pendingPosition = null;
+    }
     hidePlaceholder();
     editor.focus();
     emit('cursor', editor.getPosition() || { lineNumber: 1, column: 1 });
@@ -309,40 +320,82 @@ export function closeAllFiles() {
   emit('tabs');
 }
 
-/** Save one file to the folder (or download it when the folder cannot be written). */
+/**
+ * Save one file back into the folder it was opened from.
+ *
+ * With a real folder (Chrome, Edge, Opera, Brave) this writes straight to the file on your
+ * disk — same folder, same name, same subfolder. Firefox and Safari have no API that can
+ * write to your disk at all, so there the edit is kept in the editor's copy of the folder
+ * and "Save Folder" packs the lot back up as a zip; `needsExport` is what remembers that
+ * there is something waiting to be packed.
+ */
 export async function saveFile(path) {
   const entry = findEntry(path);
-  if (!entry || entry.kind !== 'text') return;
+  if (!entry || entry.kind !== 'text' || entry.scratch) return;
 
   // Capture text AND version together: keystrokes typed while the write is in progress
   // must stay marked as unsaved.
   const text = entry.model.getValue();
   const version = entry.model.getAlternativeVersionId();
 
-  if (entry.scratch) {
-    downloadText(entry.name, text);
-    toast(`Downloaded ${entry.name}. The scratch file is also kept in this browser automatically.`, 'info');
-    return;
-  }
-
   const backend = fs.current();
   await fs.writeText(path, text); // memory backends keep the new text so reopening the tab shows it
-  if (backend.readOnly) downloadText(entry.name, text);
 
   entry.savedVersion = version;
   entry.dirty = entry.model.getAlternativeVersionId() !== version;
   emit('tabs');
   emit('saved', entry);
 
-  if (backend.readOnly) toast(`This browser cannot write to your folder, so ${entry.name} was downloaded instead.`, 'warning', 4500);
-  else if (backend.sample) toast(`Saved ${entry.name} (sample project, in memory only)`, 'success', 1800);
-  else toast(`Saved ${entry.name}`, 'success', 1800);
+  if (backend.kind === 'native') {
+    toast(`Saved ${entry.name} to "${backend.name}"`, 'success', 1800);
+    return;
+  }
+
+  // Nothing reached the disk, so say so and point at the way that does.
+  markNeedsExport();
+  if (backend.sample) {
+    toast(`Saved ${entry.name} in the sample project (memory only). Save Folder downloads it as a zip.`, 'info', 4000);
+  } else {
+    toast(
+      `Saved ${entry.name} in the editor. This browser cannot write to "${backend.name}" — ` +
+      `use Save Folder to download ${backend.name}.zip and unzip it over the original.`,
+      'warning', 6500,
+    );
+  }
+}
+
+/** Remember that the open folder holds edits that have not made it back to the disk yet. */
+export function markNeedsExport(value = true) {
+  if (!state.folder || state.folder.needsExport === value) return;
+  state.folder.needsExport = value;
+  emit('folder', state.folder);
 }
 
 export async function saveAll() {
   for (const entry of [...state.openFiles]) {
     if (entry.dirty && !entry.scratch) await saveFile(entry.path);
   }
+}
+
+/**
+ * Where the cursor sits in every open file. Stored alongside the folder so that reopening
+ * it puts each tab back on the line you left it on.
+ */
+export function openFilePositions() {
+  const positions = [];
+  for (const entry of state.openFiles) {
+    if (entry.scratch || entry.kind !== 'text') continue;
+    let position = entry.viewState?.cursorState?.[0]?.position || entry.pendingPosition || null;
+    if (entry.path === state.activePath && editor && editor.getModel() === entry.model) {
+      position = editor.getPosition() || position;
+    }
+    positions.push({
+      path: entry.path,
+      lineNumber: position?.lineNumber || 1,
+      column: position?.column || 1,
+    });
+  }
+  return positions;
 }
 
 /* ---------- Scratch file (no folder open) ---------- */
@@ -372,6 +425,18 @@ export function openScratch(lang, content) {
   activateFile(SCRATCH_PATH);
   emit('tabs');
   return entry;
+}
+
+/**
+ * Rename the scratch tab. Once the scratch file has a home on disk the tab stops saying
+ * "untitled" and shows the real file name instead, so you can see where Ctrl+S will land.
+ */
+export function setScratchName(name) {
+  const entry = state.openFiles.find((f) => f.scratch);
+  if (!entry || entry.name === name) return;
+  entry.name = name;
+  emit('tabs');
+  if (state.activePath === SCRATCH_PATH) emit('active', entry);
 }
 
 /** Swap the scratch file to another language (the tab name and colouring change). */

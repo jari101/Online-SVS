@@ -10,15 +10,20 @@ export const supported = typeof window.showDirectoryPicker === 'function';
 /** Show the folder picker. Resolves to a backend, or null when the user cancels. */
 export async function pick() {
   try {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    return createBackend(handle);
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'svs-folder' });
+    return fromHandle(handle);
   } catch (err) {
     if (err && err.name === 'AbortError') return null;
     throw err;
   }
 }
 
-function createBackend(root) {
+/**
+ * Build a backend around a folder handle. Used by the picker above and, when you come back
+ * to the site, by the handle remembered from last time — that is what lets the same folder
+ * reopen without picking it again.
+ */
+export function fromHandle(root) {
   async function dirHandle(path, create = false) {
     let dir = root;
     for (const seg of segments(path)) dir = await dir.getDirectoryHandle(seg, { create });
@@ -35,6 +40,7 @@ function createBackend(root) {
     name: root.name,
     readOnly: false,
     sample: false,
+    handle: root,   // stored (not the path — a handle reveals nothing on its own) so it can be reopened later
 
     tree: () => buildTree(root, ''),
 
