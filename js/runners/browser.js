@@ -10,6 +10,7 @@
 
 import { CONFIG } from '../config.js';
 import { getMonaco } from '../editor.js';
+import { RunError } from './run-error.js';
 
 /** Thrown when a run is abandoned, so the caller can tell it apart from a crash. */
 const abortError = () => new DOMException('The run was stopped.', 'AbortError');
@@ -55,7 +56,7 @@ function drive(worker, message, { onOutput, onStatus, onEngine, signal, onTermin
       stop();
       worker.terminate();
       onTerminate?.();
-      reject(new Error(message));
+      reject(new RunError(message));
     }
 
     worker.onmessage = (event) => {

@@ -816,6 +816,28 @@ try {
     assert.equal(await exists('#status-runner:not([hidden])'), false, 'a browser language needs no reminder');
   });
 
+  await step('when Python cannot be downloaded, the message says what to change', async () => {
+    // In its own page, so the interpreter the main page already booted is not disturbed.
+    const probe = await context.newPage();
+    await probe.addInitScript((base) => {
+      window.SVS_MONACO_BASE = base;
+      window.SVS_PYODIDE_BASE = `${location.origin}/nowhere-at-all/`;
+      window.SVS_DEBUG = true;
+    }, `${BASE}/tests/node_modules/monaco-editor/min`);
+    await probe.goto(`${BASE}/`);
+    await probe.waitForSelector('.monaco-editor .view-lines', { timeout: 30000 });
+    await probe.waitForSelector('#btn-open-folder:not([disabled])');
+    await probe.selectOption('#language-select', 'python');
+    await probe.waitForSelector('.tab.active:has-text("untitled.py")');
+    await probe.click('#btn-run');
+    await probe.waitForFunction(() => document.getElementById('output-text').textContent.includes('config.js'), null, { timeout: 30000 });
+    const output = await probe.textContent('#output-text');
+    assert.match(output, /Python could not be started from/);
+    assert.match(output, /Check your internet connection/);
+    assert.match(output, /pyodideVersion in js\/config\.js/, 'the one thing to change should be named');
+    await probe.close();
+  });
+
   await step('picking a language that needs a runner opens Settings, but only the first time', async () => {
     await page.click('.activity[data-view="explorer"]');
     await page.waitForSelector('#view-settings', { state: 'hidden' });

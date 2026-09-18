@@ -147,7 +147,15 @@ self.onmessage = async (event) => {
   try {
     await boot(message.base);
   } catch (err) {
-    send({ type: 'failed', message: err?.message || String(err) });
+    // Usually no internet. The other possibility is that the version in config.js has been
+    // withdrawn from the CDN, which reads as the same failure, so name both.
+    send({
+      type: 'failed',
+      message: `Python could not be started from ${message.base}\n`
+        + `${err?.message || err}\n`
+        + 'Check your internet connection. If it is fine, the version may have moved on: '
+        + 'change pyodideVersion in js/config.js to a version that exists.',
+    });
     return;
   }
   send({ type: 'ready', version: pyodide.version });
