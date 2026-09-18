@@ -49,7 +49,7 @@
     <div class="titlebar-center" id="titlebar-title">Online SVS</div>
 
     <div class="titlebar-right">
-      <button id="btn-run" class="btn btn-run" aria-disabled="true" title="Run the current file (arrives in Phase 3)">
+      <button id="btn-run" class="btn btn-run" aria-disabled="true" title="Run the current file (Ctrl+Enter)">
         <span class="btn-run-icon" data-icon="play" aria-hidden="true"></span><span class="btn-run-label">Run</span>
       </button>
       <button id="btn-live" class="btn btn-live" aria-pressed="false" title="Start the live server and preview your website" disabled>
@@ -136,6 +136,10 @@
         </div>
         <div class="panel-body">
           <div id="panel-output" class="panel-content" role="tabpanel" aria-labelledby="paneltab-output">
+            <div id="output-meta" class="output-meta" hidden>
+              <span class="run-where"><span class="run-dot" aria-hidden="true"></span><span id="output-where"></span></span>
+              <span id="output-engine" class="run-engine"></span>
+            </div>
             <pre id="output-text" class="output"><span class="muted">Press Run (Ctrl+Enter) to run the file you are editing. What it prints appears here.</span></pre>
           </div>
           <div id="panel-input" class="panel-content" role="tabpanel" aria-labelledby="paneltab-input" hidden>
@@ -159,6 +163,7 @@
       <span id="status-cursor" class="status-item">Ln 1, Col 1</span>
       <button id="status-indent" class="status-item" title="Indentation (open Settings)">Spaces: 4</button>
       <span class="status-item">UTF-8</span>
+      <button id="status-runner" class="status-item warn" hidden><span data-icon="gear" aria-hidden="true"></span><span id="status-runner-text">Needs a code runner</span></button>
       <span id="status-language" class="status-item">Plain Text</span>
       <button id="status-font" class="status-item" title="Editor font (open Settings)">Default font</button>
     </div>

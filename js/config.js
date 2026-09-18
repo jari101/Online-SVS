@@ -3,6 +3,7 @@
 // (the test sandbox cannot reach the internet). Production never sets them.
 
 const MONACO_VERSION = '0.52.2';
+const PYODIDE_VERSION = '314.0.7';
 
 export const CONFIG = {
   appName: 'Online SVS',
@@ -11,8 +12,17 @@ export const CONFIG = {
   monacoVersion: MONACO_VERSION,
   monacoBase: window.SVS_MONACO_BASE || `https://cdn.jsdelivr.net/npm/monaco-editor@${MONACO_VERSION}/min`,
 
-  // Piston runs the code (Phase 3). Point this at your own Piston if the public one is blocked.
-  pistonUrl: window.SVS_PISTON_URL || 'https://emkc.org/api/v2/piston',
+  // Pyodide is CPython compiled to WebAssembly: it runs Python inside this browser tab,
+  // so no server is involved and your code never leaves the machine. It is about 12 MB and
+  // is downloaded the first time you run Python, then kept in the browser's cache.
+  pyodideVersion: PYODIDE_VERSION,
+  pyodideBase: window.SVS_PYODIDE_BASE || `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`,
+
+  // The code runner for languages a browser cannot run by itself: C, C++, Java, C#, Go,
+  // Rust and the rest. There is no default any more — the free public Piston service closed
+  // to the public on 15 February 2026 — so this is empty until you point Settings at a
+  // Piston of your own. See the README for how to start one.
+  defaultRunnerUrl: window.SVS_PISTON_URL || '',
 
   // Folder names the explorer never reads (they are huge and never part of a website).
   ignoredNames: ['node_modules', '.git', 'dist', 'build', '.cache', '.DS_Store', 'Thumbs.db'],

@@ -4,6 +4,8 @@
 import { state, on, emit, activeFile } from './state.js';
 import { getMonaco } from './editor.js';
 import { fontById } from './fonts.js';
+import { languageForPath, needsServer } from './languages.js';
+import { serverRunner } from './runners/piston.js';
 import { showPanelTab } from './panel.js';
 import { showSidebarView } from './layout.js';
 import { $ } from './dom.js';
@@ -16,6 +18,8 @@ export function initStatusBar() {
   const folder = $('status-folder');
   const live = $('status-live');
   const liveText = $('status-live-text');
+  const runner = $('status-runner');
+  const runnerText = $('status-runner-text');
 
   on('cursor', (p) => {
     cursor.textContent = `Ln ${p.lineNumber}, Col ${p.column}`;
@@ -29,6 +33,27 @@ export function initStatusBar() {
   };
   on('active', updateLanguage);
   on('tabs', updateLanguage);
+
+  // A quiet standing reminder for the languages that cannot run until a runner is set up.
+  // The Settings panel opens by itself only the first time; after that, this is the nudge.
+  const updateRunner = () => {
+    const lang = languageOfActiveFile();
+    const missing = Boolean(lang && needsServer(lang) && !serverRunner());
+    runner.hidden = !missing;
+    if (!missing) return;
+    runnerText.textContent = `${lang.name} needs a code runner`;
+    runner.title = `${lang.name} has to be compiled, so it cannot run inside your browser. `
+      + 'Click to set up a code runner in Settings.';
+  };
+  on('active', updateRunner);
+  on('tabs', updateRunner);
+  on('scratch', updateRunner);
+  on('runner-changed', updateRunner);
+  updateRunner();
+  runner.addEventListener('click', () => {
+    showSidebarView('settings');
+    emit('focus-runner-setting');
+  });
 
   const updateSettings = () => {
     indent.textContent = `Spaces: ${state.settings.tabSize}`;
@@ -89,6 +114,13 @@ export function initStatusBar() {
     if (state.live.status === 'paused') showPanelTab('problems');
     else emit('command', 'toggle-live');
   });
+}
+
+/** The language of whatever is open: the scratch file carries its own, a real file goes by name. */
+function languageOfActiveFile() {
+  const file = activeFile();
+  if (!file || file.kind !== 'text') return null;
+  return file.scratch ? file.language : languageForPath(file.path);
 }
 
 /** "javascript" -> "JavaScript", using Monaco's own list of language names. */

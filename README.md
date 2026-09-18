@@ -10,7 +10,9 @@ OnlineGDB does not have:
   home on your disk. *(Phase 5)*
 - **Nothing is stored on the website.** Your files stay on your computer. There are no accounts and no uploads.
 
-Plus the classic OnlineGDB part: pick a language, write a program, press **Run** and read the output. *(Phase 3)*
+Plus the classic OnlineGDB part: pick a language, write a program, press **Run** and read the
+output. Python, JavaScript and TypeScript run **inside your browser** — no server, no queue, no
+internet needed once they are cached. *(Phases 3 and 6)*
 
 ## Status
 
@@ -21,6 +23,7 @@ Plus the classic OnlineGDB part: pick a language, write a program, press **Run**
 | 3 | Run button for C, C++, Python, Java, JavaScript and more via the Piston API, stdin input | **done** |
 | 4 | Polish: search, rename/delete, quick open, image preview, more settings | planned |
 | 5 | Saving back where it came from: reopen your last folder and its tabs, a home on disk for the scratch file, Save Folder as a zip | **done** |
+| 6 | Python, JavaScript and TypeScript run in the browser; everything else goes to a code runner you set up in Settings | **done** |
 
 ## Try it
 
@@ -99,29 +102,60 @@ The scratch file can be previewed too: pick the **HTML** language and press Go L
 3. If your program reads input, type it in the **Input** tab first, one value per line. It is
    handed to the program the moment it starts, which is how OnlineGDB's non-interactive mode
    works: a program cannot ask you for more input while it is running.
-4. Pressing the button again while a program is running stops waiting for the result.
+4. Pressing the button again while a program is running stops it.
+
+The line above the output says where the program ran. A **teal dot** means it ran inside your
+browser and nothing left the machine; a grey one means it was sent to the code runner you set up.
 
 Languages: C, C++, Python, JavaScript, TypeScript, Java, C#, Go, Rust, PHP, Ruby, Kotlin,
 Swift, Bash and Lua. In a folder, the language comes from the file extension. Java files are
 named after their public class automatically, because the Java compiler insists on it.
 
-**Which files are sent.** The file you run always goes. Source files of the same kind sitting
-beside it go too, so `#include "utils.h"` and `import helper` find what they need. Three kinds
-of neighbour are deliberately held back: a file that defines its own `main`, so a folder full
-of separate exercises still compiles; data files such as `.json`, because that is where
-configuration and keys tend to live; and anything whose name suggests a secret, such as `.env`,
-`api_key.js` or a `.pem`. Every file that does get sent is named in the Output tab before the
-program runs, so nothing leaves your machine without you seeing it listed.
+#### Where each language runs
 
-Where the code runs: Online SVS has no server, so **Run** sends the file to
-[Piston](https://github.com/engineer-man/piston), a free public service that compiles and runs
-it in a sandbox and sends back the output. That one request is the only time your code leaves
-your browser, and it happens only when you press Run. Piston does not keep your code, but if
-you would rather it never left your machine at all, run your own Piston and change `pistonUrl`
-in `js/config.js`.
+**Python, JavaScript and TypeScript run in your browser**, in a Web Worker. Nothing is uploaded,
+there is no rate limit, and it keeps working with no internet once the files are cached.
 
-Two limits worth knowing: the public service allows only a few runs per second, so a rapid
-second press may ask you to wait, and programs are stopped after a few seconds of running.
+| Language | How |
+|---|---|
+| JavaScript | a sandboxed Web Worker. `console.log`, `readline()` and `process.stdout.write` all work |
+| TypeScript | compiled to JavaScript by the TypeScript compiler Monaco already loads for the editor, then run the same way |
+| Python | [Pyodide](https://pyodide.org) — CPython itself compiled to WebAssembly. About 12 MB the first time, then cached by your browser. `input()`, `sys.stdin` and the standard library all work |
+
+Because the program is a real thread of its own, **Stop genuinely stops it** — even a `while (true)`.
+
+**Everything else has to be compiled**, which a browser cannot do, so those languages are sent to
+a [Piston](https://github.com/engineer-man/piston) server whose address you put in **Settings →
+Code runner**. There is no address built in: the free public Piston
+[closed to the public on 15 February 2026](https://github.com/engineer-man/piston#public-api),
+and personal and portfolio projects do not qualify for a key. Until you add one, C, C++, Java and
+the rest say so and offer to take you to the setting.
+
+#### Running your own Piston
+
+It is one Docker command on any machine that stays on — a spare PC, a Raspberry Pi, a small VPS:
+
+```sh
+docker run -d --name piston -p 2000:2000 --privileged -v piston:/piston ghcr.io/engineer-man/piston
+# then install the languages you want, for example:
+docker exec piston /piston/packages/ppman install python 3.12.0
+docker exec piston /piston/packages/ppman install gcc 10.2.0
+```
+
+Put `http://localhost:2000/api/v2` in **Settings → Code runner** and press **Test connection**.
+For a Piston that is not on your own machine, it must be reachable over `https://` and must allow
+requests from wherever you opened Online SVS (a CORS header). The **Key** field is only for a
+public Piston that whitelisted you; one you run yourself needs none.
+
+**Which files are sent.** Only a run that goes to your code runner sends anything at all. The
+file you run always goes. Source files of the same kind sitting beside it go too, so
+`#include "utils.h"` and `import helper` find what they need. Three kinds of neighbour are
+deliberately held back: a file that defines its own `main`, so a folder full of separate
+exercises still compiles; data files such as `.json`, because that is where configuration and
+keys tend to live; and anything whose name suggests a secret, such as `.env`, `api_key.js` or a
+`.pem`. Every file that does get sent is named in the Output tab before the program runs, so
+nothing leaves your machine without you seeing it listed. A run inside your browser is not
+restricted this way, because there is nowhere for the files to go.
 
 How it works: a Service Worker (`sw.js`) answers every request under `live/` from the browser's
 Cache API, where `js/live.js` copies the files of your folder. That is why relative links, images,
@@ -217,7 +251,11 @@ js/settings.js        settings view; js/fonts.js lists the fonts you can pick
 js/layout.js          dividers, sidebar/panel/preview toggles
 js/panel.js           Output / Input / Problems panel
 js/live.js            live server: syncs files into the cache, error gating, reload messages, preview panel
-js/runner.js          Run button: talks to the Piston service and renders the output
+js/runner.js          Run button: decides where a program runs and renders the output
+js/runners/browser.js Python, JavaScript and TypeScript inside this tab, via Web Workers
+js/runners/js.worker.js      the JavaScript sandbox: console, stdin, timers, module linking
+js/runners/python.worker.js  Pyodide: CPython in WebAssembly, with input() wired to the Input tab
+js/runners/piston.js  your own Piston server, for the languages that must be compiled
 js/recent.js          remembers the last folder and its tabs; the "Reopen hello" bar
 js/saving.js          the scratch file's home on disk, and Save Folder as a zip
 js/dialog.js          confirmation dialog (native <dialog>) with verb-first buttons
@@ -249,9 +287,15 @@ copy of Monaco later is a one-line change and needs no other edits.
 `tests/smoke.spec.mjs` starts a local server, opens the app in headless Chromium and clicks
 through the main features: scratch mode, folders, keyboard navigation, the confirmation dialog,
 the live server (preview, CSS hot swap, pausing on errors, the new-tab URL, 404 page, stop),
-the Run button against a stand-in for the Piston service, and saving work back where it came
-from (the zip a folder is packed into, the scratch file's home on disk, the reopen bar and
-putting tabs back with their cursors).
+the Run button both ways — JavaScript and TypeScript for real in the browser, and C++ and Java
+against a stand-in for a Piston server — and saving work back where it came from (the zip a
+folder is packed into, the scratch file's home on disk, the reopen bar and putting tabs back
+with their cursors).
+
+Python is the one runtime the test cannot use for real: Pyodide is a 12 MB download and the
+test sandbox has no internet. `tests/fixtures/pyodide/` answers the same handful of calls, so
+the plumbing around Python is still checked — output, `input()`, importing the file beside it,
+tracebacks and exit codes — without an interpreter being involved.
 
 Two things the browser will not let a test drive: the folder picker and the Save dialog, since
 both need a real person. The Save dialog is stood in for, and reopening a folder is exercised
@@ -274,5 +318,6 @@ npm test
   never sent anywhere, and the browser asks your permission again on every visit before it opens
   anything. **Forget** on the reopen bar deletes it.
 - While the live server runs, copies of your files sit in **your browser's** cache so the preview can load them. They are removed when you stop the server, close the folder or reload the app.
-- Pressing **Run** is the one exception: the file you are running, the helper files beside it and your Input text are sent to the Piston service so it can run them. The Output tab names every file that was sent. Data files and anything that looks like a secret are held back. Nothing is sent until you press Run.
+- Running **Python, JavaScript or TypeScript** sends nothing anywhere: they run inside your own browser, and the Output tab shows a teal dot to say so.
+- Running any other language is the one exception. The file you are running, the helper files beside it and your Input text are sent to the code runner **you** set up in Settings, so it can compile them. The Output tab names every file that was sent and shows a grey dot to mark that it left the browser. Data files and anything that looks like a secret are held back. Nothing is sent until you press Run, and nothing at all is sent while no runner is set up.
 - There is no account, no tracking and no server-side storage of any kind.

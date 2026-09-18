@@ -1,5 +1,11 @@
 // js/languages.js — the languages you can write and run, with the file extension Monaco needs
-// for syntax colouring, the name Piston uses to run them and a starter program.
+// for syntax colouring, how each one is run and a starter program.
+//
+// A language can be run in two places. `browser` names a runtime that lives inside this tab,
+// so the code never leaves your machine and works with no internet once it is cached.
+// `piston` names the language on a Piston server, used for everything a browser cannot
+// compile by itself (C, C++, Java, C#, Go, Rust…). A language may have both: the browser
+// wins, because it is faster, private and always available.
 //
 // `companions` lists the extensions of other files in the same folder that are sent along with
 // the file you run, so `#include "utils.h"` or `import helper` finds them.
@@ -28,17 +34,17 @@ export const LANGUAGES = [
     template: '#include <iostream>\n\nint main() {\n    std::cout << "Hello, World!" << std::endl;\n    return 0;\n}\n',
   },
   {
-    id: 'python', name: 'Python', ext: 'py', monaco: 'python', piston: 'python',
+    id: 'python', name: 'Python', ext: 'py', monaco: 'python', piston: 'python', browser: 'python',
     companions: ['py'],
     template: 'print("Hello, World!")\n',
   },
   {
-    id: 'javascript', name: 'JavaScript', ext: 'js', monaco: 'javascript', piston: 'javascript',
+    id: 'javascript', name: 'JavaScript', ext: 'js', monaco: 'javascript', piston: 'javascript', browser: 'javascript',
     companions: ['js', 'mjs', 'cjs'],
     template: 'console.log("Hello, World!");\n',
   },
   {
-    id: 'typescript', name: 'TypeScript', ext: 'ts', monaco: 'typescript', piston: 'typescript',
+    id: 'typescript', name: 'TypeScript', ext: 'ts', monaco: 'typescript', piston: 'typescript', browser: 'typescript',
     companions: ['ts'],
     template: 'const message: string = "Hello, World!";\nconsole.log(message);\n',
   },
@@ -122,13 +128,23 @@ export function languageForPath(path) {
   return mapped ? findLanguage(mapped) : null;
 }
 
-/** True when this language can be sent to Piston at all (HTML is previewed, not run). */
+/** True when this language can be run at all, here or on a server (HTML is previewed, not run). */
 export function isRunnable(lang) {
-  return Boolean(lang && lang.piston);
+  return Boolean(lang && (lang.browser || lang.piston));
+}
+
+/** True when this language has a runtime that works inside the browser, with no server. */
+export function runsInBrowser(lang) {
+  return Boolean(lang && lang.browser);
+}
+
+/** True when this language can only be run by a Piston server you point the app at. */
+export function needsServer(lang) {
+  return Boolean(lang && lang.piston && !lang.browser);
 }
 
 /**
- * The file name to send to Piston for a piece of source code.
+ * The file name a piece of source code should be given when it is run.
  * Java is the fussy one: the file must be named after its public class, or javac refuses
  * to compile it, so we read the class name out of the source.
  */

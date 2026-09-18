@@ -18,6 +18,12 @@ export function el(tag, className = '', html = '') {
 /** Shorthand for document.getElementById. */
 export const $ = (id) => document.getElementById(id);
 
+/** "a", "a and b", "a, b and c" — for listing things in a sentence. */
+export function joinNames(names) {
+  if (names.length < 2) return names[0] || '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
 /** Keep a number between two limits. */
 export const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 

@@ -15,10 +15,12 @@ export const state = {
     tabSize: 4,
     wordWrap: false,
     minimap: true,
+    runnerUrl: '',        // your own Piston server, for the languages a browser cannot compile
+    runnerKey: '',        // only if that server asks for one; a Piston you run yourself does not
   },
-  stdin: '',              // text of the Input tab (sent to programs in Phase 3)
+  stdin: '',              // text of the Input tab, handed to your program as stdin
   live: { status: 'off', errors: 0 },   // 'off' | 'on' | 'paused'
-  running: false,         // true while a program is being run by the Piston service
+  running: false,         // true while a program is running
 };
 
 const listeners = new Map();

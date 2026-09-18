@@ -4,11 +4,18 @@
 
 import { CONFIG } from './config.js';
 import { state, on, emit } from './state.js';
-import { LANGUAGES, findLanguage } from './languages.js';
+import { LANGUAGES, findLanguage, runsInBrowser, needsServer } from './languages.js';
+import { serverRunner, knownRuntimes } from './runners/piston.js';
 import { openScratch, replaceScratchModel, removeScratch } from './editor.js';
+import { showSidebarView } from './layout.js';
 
 let selectEl = null;
 let saveTimer = null;
+
+// Choosing a language that has nowhere to run opens Settings — but only the first time in a
+// session. After that the status bar carries the reminder, so switching languages while you
+// are reading or writing code does not keep throwing you into Settings.
+let offeredSettings = false;
 
 function readSaved() {
   try {
@@ -28,18 +35,28 @@ function writeSaved(data) {
 }
 
 /**
- * Called once the code-running service has told us which languages it offers, so the
- * dropdown can say which ones cannot be run. They stay selectable: you can still write
- * and save the code, and HTML is previewed with Go Live rather than run.
+ * Say in the dropdown which languages can actually be run right now. They all stay
+ * selectable: you can write and save code in any of them, and HTML is previewed with
+ * Go Live rather than run.
  */
-export function markLanguageAvailability(isAvailable) {
+export function refreshLanguageAvailability() {
   if (!selectEl) return;
+  const runner = serverRunner();
+  const runtimes = knownRuntimes();
   for (const option of selectEl.options) {
     const lang = findLanguage(option.value);
-    if (!lang || !lang.piston) continue;
-    const available = isAvailable(lang);
-    option.textContent = available ? lang.name : `${lang.name} (cannot be run today)`;
+    if (!lang) continue;
+    option.textContent = lang.name + availabilityNote(lang, runner, runtimes);
   }
+}
+
+function availabilityNote(lang, runner, runtimes) {
+  if (runsInBrowser(lang)) return ' — runs in your browser';
+  if (!needsServer(lang)) return '';               // HTML: previewed, never run
+  if (!runner) return ' — needs a code runner';
+  // We only know what the runner offers once it has been asked, which happens on the first run.
+  if (runtimes && !runtimes.has(lang.piston)) return ' — your runner does not have it';
+  return '';
 }
 
 export function currentScratch() {
@@ -68,7 +85,13 @@ export function initScratch(select) {
     option.textContent = lang.name;
     select.appendChild(option);
   }
-  select.addEventListener('change', () => setScratchLanguage(findLanguage(select.value)));
+  select.addEventListener('change', () => {
+    const lang = findLanguage(select.value);
+    setScratchLanguage(lang);
+    offerRunnerSetup(lang);
+  });
+  refreshLanguageAvailability();
+  on('runner-changed', refreshLanguageAvailability);
   on('content', (entry) => {
     if (entry.scratch) scheduleSave();
   });
@@ -89,6 +112,16 @@ export function enterScratchMode() {
 export function leaveScratchMode() {
   saveScratchNow();
   removeScratch();
+}
+
+/** Picking a language with nowhere to run takes you to the one place that fixes it. */
+function offerRunnerSetup(lang) {
+  if (!lang || !needsServer(lang) || serverRunner()) return;
+  emit('runner-needed', lang);
+  if (offeredSettings) return;
+  offeredSettings = true;
+  showSidebarView('settings');
+  emit('focus-runner-setting');
 }
 
 export function setScratchLanguage(lang) {

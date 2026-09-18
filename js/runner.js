@@ -1,41 +1,49 @@
 // js/runner.js — the Run button.
 //
-// Your code is sent to Piston (https://github.com/engineer-man/piston), a free service that
-// compiles and runs programs in a sandbox and sends back what they printed. Online SVS has no
-// server of its own, so this one request is the only time your code leaves the browser.
-// Point CONFIG.pistonUrl at your own Piston instance if you would rather it did not.
+// There are two places your code can run, and this file decides which one and reports back.
+//
+//   In your browser   JavaScript, TypeScript and Python run in a Web Worker in this tab.
+//                     Nothing is uploaded, it works offline, and Stop really stops a program.
+//   On your runner    C, C++, Java, C#, Go, Rust and the rest need a compiler, so they go to
+//                     a Piston server whose address you put in Settings. This is the only
+//                     time your code leaves the browser, and only when you press Run.
+//
+// The free public Piston closed to the public on 15 February 2026, so there is no address
+// built in: a language that needs one says so and opens Settings for you.
 
-import { CONFIG } from './config.js';
 import { state, emit, activeFile } from './state.js';
 import * as fs from './fs/index.js';
 import { baseName } from './fs/util.js';
 import {
-  LANGUAGES, languageForPath, isRunnable, entryFileName, companionPaths, definesEntryPoint,
+  LANGUAGES, languageForPath, isRunnable, runsInBrowser, entryFileName, companionPaths,
+  definesEntryPoint,
 } from './languages.js';
 import { openTextOf } from './editor.js';
-import { clearOutput, appendOutput, showPanelTab } from './panel.js';
-import { markLanguageAvailability } from './scratch.js';
-import { toast } from './toast.js';
+import { clearOutput, appendOutput, showPanelTab, setRunLocation } from './panel.js';
+import { refreshLanguageAvailability } from './scratch.js';
+import { showSidebarView } from './layout.js';
+import { RunError } from './runners/run-error.js';
+import { runInBrowser } from './runners/browser.js';
+import { runOnServer, serverRunner } from './runners/piston.js';
 import { icons } from './icons.js';
-import { $ } from './dom.js';
+import { $, joinNames } from './dom.js';
 
-const MAX_FILES = 12;                 // the entry file plus its companions
-const MAX_TOTAL_BYTES = 64 * 1024;    // keep requests small; Piston rejects very large ones
-const REQUEST_TIMEOUT = 30000;        // covers the whole run, both requests together
+const MAX_FILES = 12;                  // the entry file plus its companions
+const MAX_TOTAL_BYTES = 64 * 1024;     // keep uploads small; Piston rejects very large ones
+const SERVER_TIMEOUT = 30000;          // waiting on somebody else's machine
+const BROWSER_TIMEOUT = 60000;         // long enough for an endless loop to be obvious
 
-let runtimes = null;   // the service's language list, once it has answered us
-let inFlight = null;   // AbortController for the run in progress
-let timedOut = false;   // false after an abort means you pressed stop yourself
+let inFlight = null;    // AbortController for the run in progress
+let timedOut = false;   // false after an abort means you pressed Stop yourself
 let runButton = null;
 let runLabel = null;
 let runIcon = null;
 
-/** An error with a message meant for the user rather than the console. */
-class RunError extends Error {}
-
 /**
  * Names that should never be uploaded just because they sit next to the file you ran.
- * Running one file is not consent to send the keys lying beside it.
+ * Running one file is not consent to send the keys lying beside it. This applies to the
+ * server only: a run inside the browser sends nothing anywhere, so holding a helper back
+ * would just break the program for no gain.
  */
 function looksSensitive(name) {
   const lower = name.toLowerCase();
@@ -50,64 +58,41 @@ export function initRunner() {
   runLabel = runButton.querySelector('.btn-run-label');
   runButton.removeAttribute('aria-disabled');
   setRunning(false);
+  refreshLanguageAvailability();
 }
 
-/* ---------- The Piston service ---------- */
+/* ---------- Deciding where a language runs ---------- */
 
-/** The service's languages, asked for once and then remembered for the session. */
-async function loadRuntimes(signal) {
-  if (runtimes) return runtimes;
-
-  let response;
-  try {
-    response = await fetch(`${CONFIG.pistonUrl}/runtimes`, { headers: { Accept: 'application/json' }, signal });
-  } catch (err) {
-    if (err.name === 'AbortError') throw err;
-    throw new RunError(
-      `Could not reach the code-running service at ${CONFIG.pistonUrl}. `
-      + 'Check your internet connection. Some networks and browser extensions block it; '
-      + 'you can also run your own Piston and point the app at it.',
-    );
-  }
-  if (response.status === 429) throw rateLimitError();
-  if (!response.ok) throw new RunError(`The code-running service answered ${response.status} ${response.statusText}.`);
-
-  const list = await response.json();
-  const best = new Map(); // language name or alias -> { language, version }
-  for (const runtime of list) {
-    for (const name of [runtime.language, ...(runtime.aliases || [])]) {
-      const known = best.get(name);
-      if (!known || isNewer(runtime.version, known.version)) {
-        best.set(name, { language: runtime.language, version: runtime.version });
-      }
-    }
-  }
-
-  runtimes = best;
-  // Now that we know what exists, say so in the language dropdown.
-  markLanguageAvailability((lang) => !lang.piston || best.has(lang.piston));
-  return runtimes;
+/** 'browser', 'server', or null when nothing can run it yet. */
+function whereItRuns(lang) {
+  if (!isRunnable(lang)) return null;
+  if (runsInBrowser(lang)) return 'browser';
+  return serverRunner() ? 'server' : null;
 }
 
-/** Compare two version strings the way "10.2.0" beats "9.4.0". */
-function isNewer(a, b) {
-  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
-  }
-  return false;
+/** The names of the languages that always work, for the "here is a way out" message. */
+function browserLanguageNames() {
+  return joinNames(LANGUAGES.filter(runsInBrowser).map((l) => l.name));
 }
 
-function rateLimitError() {
-  return new RunError('The free code-running service allows only a few runs per second. Wait a moment and press Run again.');
+/** Spelled out in full, because a raw error code teaches nobody anything. */
+function noRunnerError(lang) {
+  return new RunError(
+    `${lang.name} cannot run inside your browser: it has to be compiled first.\n\n`
+    + '  Two ways to fix this:\n'
+    + `  • Switch to ${browserLanguageNames()}, which run here with no setup\n`
+    + '  • Add your own code runner in Settings ⚙ — see the README for how to start one\n\n'
+    + 'The free public Piston service closed to the public in February 2026, which is why '
+    + 'there is no address built in any more.',
+    'settings',
+  );
 }
 
 /* ---------- Building the request ---------- */
 
 const byteLength = (text) => new TextEncoder().encode(text).length;
 
-/** Work out what to send: the language, the entry file and any companion files beside it. */
+/** Work out what to run: the language, the entry file and any companion files beside it. */
 async function collectRequest() {
   const file = activeFile();
   if (!file) throw new RunError('Open a file first, then press Run.');
@@ -126,25 +111,29 @@ async function collectRequest() {
   }
   if (!source.trim()) throw new RunError(`"${file.name}" is empty, so there is nothing to run.`);
 
+  const where = whereItRuns(lang);
+  if (!where) throw noRunnerError(lang);
+  const remote = where === 'server';
+
   const entryName = entryFileName(lang, source, file.scratch ? null : baseName(file.path));
   const files = [{ name: entryName, content: source }];
   let total = byteLength(source);
-  if (total > MAX_TOTAL_BYTES) {
+  if (remote && total > MAX_TOTAL_BYTES) {
     throw new RunError(`"${file.name}" is larger than ${Math.round(MAX_TOTAL_BYTES / 1024)} KB, which is too big to send.`);
   }
 
-  // Files next to it in the same folder, so #include "utils.h" and import helper work.
+  // Files next to it in the same folder, so #include "utils.h" and import helper find them.
   let skipped = 0;
   let withheld = 0;
   if (!file.scratch && state.tree) {
     for (const path of companionPaths(state.tree, file.path, lang)) {
       const name = baseName(path);
       if (files.some((f) => f.name === name)) continue;
-      if (looksSensitive(name)) {
+      if (remote && looksSensitive(name)) {
         withheld += 1;
         continue;
       }
-      if (files.length >= MAX_FILES) {
+      if (remote && files.length >= MAX_FILES) {
         skipped += 1;
         continue;
       }
@@ -158,7 +147,7 @@ async function collectRequest() {
       // A neighbouring exercise with its own main would break the build, so leave it out.
       if (definesEntryPoint(lang, content)) continue;
       const size = byteLength(content);
-      if (total + size > MAX_TOTAL_BYTES) {
+      if (remote && total + size > MAX_TOTAL_BYTES) {
         skipped += 1;
         continue;
       }
@@ -167,17 +156,17 @@ async function collectRequest() {
     }
   }
 
-  return { lang, files, entryName, skipped, withheld };
+  return { lang, where, files, entryName, skipped, withheld };
 }
 
 /* ---------- Running ---------- */
 
 export async function run() {
   if (!runButton) {
-    toast('The editor is still loading. Try again in a moment.', 'warning');
+    appendOutput('The editor is still loading. Try again in a moment.\n', 'error');
     return;
   }
-  // Pressing the button while a run is under way stops waiting for the answer.
+  // Pressing the button while a run is under way stops the program.
   if (state.running) {
     inFlight?.abort();
     return;
@@ -188,52 +177,47 @@ export async function run() {
   setRunning(true);
   timedOut = false;
   inFlight = new AbortController();
-  const timer = setTimeout(() => {
-    timedOut = true;
-    inFlight?.abort();
-  }, REQUEST_TIMEOUT);
+
+  let timer = null;
+  let budget = SERVER_TIMEOUT;
+  const startClock = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timedOut = true;
+      inFlight?.abort();
+    }, budget);
+  };
+  startClock();
 
   try {
-    const { lang, files, entryName, skipped, withheld } = await collectRequest();
-    if (!runtimes) appendOutput('Looking up the code-running service…\n', 'muted');
+    const { lang, where, files, entryName, skipped, withheld } = await collectRequest();
+    budget = where === 'browser' ? BROWSER_TIMEOUT : SERVER_TIMEOUT;
+    startClock();
+    setRunLocation({ where, engine: lang.name });
 
-    const available = await loadRuntimes(inFlight.signal);
-    const runtime = available.get(lang.piston);
-    if (!runtime) {
-      throw new RunError(`The code-running service does not currently offer ${lang.name}. Try another language.`);
-    }
-
-    clearOutput();
-    appendOutput(`Running ${entryName} with ${lang.name} ${runtime.version}\n`, 'info');
-    // Name every file that leaves the browser, so nothing is sent without you seeing it.
-    const extras = files.slice(1).map((f) => f.name);
-    if (extras.length) {
-      appendOutput(`Also sending from the same folder: ${extras.join(', ')}\n`, 'info');
-    }
-    if (skipped > 0) {
-      appendOutput(`${skipped} neighbouring file${skipped === 1 ? ' was' : 's were'} left out to keep the request small.\n`, 'muted');
-    }
-    if (withheld > 0) {
-      appendOutput(
-        `${withheld} neighbouring file${withheld === 1 ? ' was' : 's were'} not sent because the name suggests it holds secrets.\n`,
-        'muted',
-      );
-    }
-    appendOutput('\n');
+    const onOutput = (text, stream) => appendOutput(text, stream === 'stderr' ? 'stderr' : '');
+    // Any sign of life — Python downloading, the server answering — earns a fresh deadline.
+    const onStatus = (text) => {
+      startClock();
+      if (text) appendOutput(text, 'muted');
+    };
+    // The version is only known once the runtime is up, so the header waits for it.
+    const onEngine = (engine, host = null) => {
+      setRunLocation({ where, engine, host });
+      appendOutput(`Running ${entryName} with ${engine}\n`, 'info');
+      describeFiles(files, where, skipped, withheld);
+    };
 
     const started = performance.now();
-    const result = await execute(runtime, files, state.stdin, inFlight.signal);
-    renderResult(result, (performance.now() - started) / 1000);
+    const request = { lang, files, entryName, stdin: state.stdin, onOutput, onStatus, onEngine, signal: inFlight.signal };
+    const result = where === 'browser' ? await runInBrowser(request) : await runOnServer(request);
+    renderFooter(result, (performance.now() - started) / 1000);
   } catch (err) {
     if (err instanceof RunError) {
-      appendOutput(`${err.message}\n`, 'error');
+      printProblem(err.message);
+      if (err.action === 'settings') offerSettings();
     } else if (err.name === 'AbortError') {
-      appendOutput(
-        timedOut
-          ? `\nNo answer after ${REQUEST_TIMEOUT / 1000} seconds, so waiting was given up. The program may still be running on the service.\n`
-          : '\nStopped waiting for the result. The program may still finish on the service.\n',
-        'error',
-      );
+      appendOutput(stoppedMessage(budget), 'error');
     } else {
       console.error(err);
       appendOutput(`Something went wrong: ${err.message}\n`, 'error');
@@ -242,77 +226,72 @@ export async function run() {
     clearTimeout(timer);
     inFlight = null;
     setRunning(false);
+    // A run is when we find out what a code runner actually offers, so the language
+    // dropdown can stop guessing.
+    refreshLanguageAvailability();
     emit('run-finished');
   }
 }
 
-async function execute(runtime, files, stdin, signal) {
-  let response;
-  try {
-    response = await fetch(`${CONFIG.pistonUrl}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        language: runtime.language,
-        version: runtime.version,
-        files,
-        stdin: stdin || '',
-      }),
-      signal,
-    });
-  } catch (err) {
-    if (err.name === 'AbortError') throw err;
-    throw new RunError(
-      `Could not reach the code-running service at ${CONFIG.pistonUrl}. Check your internet connection and try again.`,
+/** Name every file that travels with your code, so nothing moves without you seeing it. */
+function describeFiles(files, where, skipped, withheld) {
+  const extras = files.slice(1).map((f) => f.name);
+  if (extras.length) {
+    const verb = where === 'server' ? 'Also sending from the same folder' : 'Also using from the same folder';
+    appendOutput(`${verb}: ${extras.join(', ')}\n`, 'info');
+  }
+  if (skipped > 0) {
+    appendOutput(`${skipped} neighbouring file${skipped === 1 ? ' was' : 's were'} left out to keep the request small.\n`, 'muted');
+  }
+  if (withheld > 0) {
+    appendOutput(
+      `${withheld} neighbouring file${withheld === 1 ? ' was' : 's were'} not sent because the name suggests it holds secrets.\n`,
+      'muted',
     );
   }
-
-  if (response.status === 429) throw rateLimitError();
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    let message = detail;
-    try {
-      message = JSON.parse(detail).message || detail;
-    } catch { /* not JSON: use the raw text */ }
-    throw new RunError(`The code-running service refused the request (${response.status}). ${message}`.trim());
-  }
-  // Await here rather than returning the promise, so the timeout still covers the download.
-  const result = await response.json();
-  return result;
+  appendOutput('\n');
 }
 
-/* ---------- Showing the result ---------- */
+/**
+ * Say what went wrong in red, then how to fix it in ordinary text. A whole paragraph of red
+ * reads as one big alarm; the part you are meant to act on should not look like more of it.
+ */
+function printProblem(message) {
+  const [headline, ...rest] = message.split('\n');
+  appendOutput(`${headline}\n`, 'error');
+  if (rest.length) appendOutput(`${rest.join('\n')}\n`);
+}
 
-function renderResult(result, seconds) {
-  const compile = result.compile;
-  if (compile && (compile.stdout || compile.stderr || compile.code)) {
-    if (compile.stdout) appendOutput(compile.stdout);
-    if (compile.stderr) appendOutput(compile.stderr, 'stderr');
-    if (compile.code !== 0) {
-      appendOutput(`\nThe program did not compile (exit code ${compile.code}).\n`, 'error');
-      return;
-    }
-    appendOutput('\n');
-  }
+function stoppedMessage(budget) {
+  if (!timedOut) return '\nStopped.\n';
+  return `\nNothing happened for ${budget / 1000} seconds, so the run was given up. `
+    + (budget === BROWSER_TIMEOUT
+      ? 'A loop that never ends is the usual reason.\n'
+      : 'The program may still be running on your code runner.\n');
+}
 
-  const program = result.run || {};
-  if (program.stdout) appendOutput(program.stdout);
-  if (program.stderr) appendOutput(program.stderr, 'stderr');
-  if (!program.stdout && !program.stderr) appendOutput('The program printed nothing.\n', 'muted');
-
-  const lastChar = (program.stdout || program.stderr || '\n').slice(-1);
-  if (lastChar !== '\n') appendOutput('\n');
-
+/** Say how the program ended: the exit code, how long it took, and why if it was killed. */
+function renderFooter(result, seconds) {
   const time = `${seconds.toFixed(2)} s`;
-  if (program.signal) {
-    const reason = program.signal === 'SIGKILL'
-      ? ' The service stops programs that run too long or use too much memory.'
-      : '';
-    appendOutput(`\nThe program was stopped by ${program.signal} after ${time}.${reason}\n`, 'error');
+  if (result.compileFailed) {
+    appendOutput(`\nThe program did not compile (exit code ${result.code}).\n`, 'error');
     return;
   }
-  const code = program.code ?? 0;
+  if (result.signal) {
+    const reason = result.signal === 'SIGKILL'
+      ? ' Your code runner stops programs that run too long or use too much memory.'
+      : '';
+    appendOutput(`\nThe program was stopped by ${result.signal} after ${time}.${reason}\n`, 'error');
+    return;
+  }
+  const code = result.code ?? 0;
   appendOutput(`\nExit code ${code} · ${time}\n`, code === 0 ? 'success' : 'error');
+}
+
+/** Take the user to the one place that fixes this. */
+function offerSettings() {
+  showSidebarView('settings');
+  emit('focus-runner-setting');
 }
 
 /* ---------- Button state ---------- */
@@ -323,6 +302,6 @@ function setRunning(running) {
   runButton.setAttribute('aria-busy', String(running));
   runIcon.innerHTML = running ? icons.stop : icons.play;
   runLabel.textContent = running ? 'Running…' : 'Run';
-  runButton.title = running ? 'Stop waiting for the result' : 'Run the current file (Ctrl+Enter)';
+  runButton.title = running ? 'Stop the program' : 'Run the current file (Ctrl+Enter)';
   emit('running', running);
 }

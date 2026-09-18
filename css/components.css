@@ -496,6 +496,32 @@ button.status-item:focus-visible { outline: 1px solid var(--fg-bright); outline-
 .setting-inline { flex-direction: row; align-items: center; gap: 8px; }
 .setting-inline input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .settings-note { color: var(--fg-muted); font-size: 11px; line-height: 1.5; border-top: 1px solid var(--border); padding-top: 12px; }
+.setting input[type="url"], .setting input[type="password"], .setting input[type="text"] { width: 100%; height: 26px; }
+.setting .label-note { font-weight: 400; color: var(--fg-muted); }
+.setting .hint.success { color: var(--success); }
+.setting .hint.error { color: var(--error); }
+.settings-heading {
+  margin: 8px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-bright);
+}
+.settings-lead { margin: 0; color: var(--fg-muted); font-size: 11px; line-height: 1.5; text-wrap: pretty; }
+.settings-form .btn { align-self: flex-start; height: 26px; padding: 0 12px; }
+
+/* Pressing Run on a language with nowhere to run brings you here; this says which field. */
+.setting.flash input { animation: setting-flash 1.6s ease-out; }
+@keyframes setting-flash {
+  0%, 60% { box-shadow: 0 0 0 2px var(--live); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setting.flash input { animation: none; box-shadow: 0 0 0 2px var(--live); }
+}
 
 /* ---------- Dialog (confirmations) ---------- */
 .dialog {
@@ -553,3 +579,43 @@ button.status-item:focus-visible { outline: 1px solid var(--fg-bright); outline-
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 }
 .toast.leaving { opacity: 0; }
+
+/* The line above the output: where your program ran, and on what.
+   Teal is the colour this app already uses for "happening on your own machine" (Go Live),
+   so it means the same here. A run that was sent to your own code runner gets a plain grey
+   dot instead — the difference between private and uploaded should be visible at a glance. */
+.output-meta {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 14px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.run-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.run-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--live);
+  flex: none;
+}
+.output-meta.remote .run-dot { background: var(--fg-muted); }
+.run-engine {
+  font-family: var(--font-mono);
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

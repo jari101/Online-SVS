@@ -1,5 +1,6 @@
-// js/panel.js — the bottom panel: Output (program output, Phase 3), Input (stdin, Phase 3)
-// and Problems (errors and warnings Monaco found in the open files).
+// js/panel.js — the bottom panel: Output (what your program printed, and where it ran),
+// Input (the text handed to the program as stdin) and Problems (errors and warnings Monaco
+// found in the open files).
 
 import { state, on, emit } from './state.js';
 import { getMonaco, revealPosition } from './editor.js';
@@ -8,11 +9,17 @@ import { escapeHtml, $ } from './dom.js';
 import { togglePanel } from './layout.js';
 
 let outputEl = null;
+let metaEl = null;
+let whereEl = null;
+let engineEl = null;
 let problemsEl = null;
 let countEl = null;
 
 export function initPanel() {
   outputEl = $('output-text');
+  metaEl = $('output-meta');
+  whereEl = $('output-where');
+  engineEl = $('output-engine');
   problemsEl = $('problems-list');
   countEl = $('problems-count');
 
@@ -65,6 +72,29 @@ export function showPanelTab(name) {
 
 export function clearOutput() {
   outputEl.textContent = '';
+  if (metaEl) metaEl.hidden = true;
+}
+
+/**
+ * The line above the output saying where this program ran.
+ * `where` is 'browser' or 'server'; `engine` is what ran it ("Python 3.14.0"); `host` is the
+ * machine a server run was sent to. Called more than once per run, because a version is only
+ * known once the runtime is up.
+ */
+export function setRunLocation({ where, engine, host } = {}) {
+  if (!metaEl) return;
+  metaEl.hidden = false;
+  if (where) {
+    const remote = where === 'server';
+    metaEl.classList.toggle('remote', remote);
+    whereEl.textContent = remote
+      ? `sent to ${host || 'your code runner'}`
+      : 'in your browser';
+    metaEl.title = remote
+      ? 'This program was sent to the code runner set up in Settings.'
+      : 'This program ran inside this browser tab. Your code did not leave the machine.';
+  }
+  if (engine) engineEl.textContent = engine;
 }
 
 /** Append a piece of text to the Output tab. `cls` can be 'stderr', 'error', 'success', 'info'. */
