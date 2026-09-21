@@ -120,7 +120,7 @@ there is no rate limit, and it keeps working with no internet once the files are
 |---|---|
 | JavaScript | a sandboxed Web Worker. `console.log`, `readline()` and `process.stdout.write` all work |
 | TypeScript | compiled to JavaScript by the TypeScript compiler Monaco already loads for the editor, then run the same way |
-| Python | [Pyodide](https://pyodide.org) — CPython itself compiled to WebAssembly. About 12 MB the first time, then cached by your browser. `input()`, `sys.stdin` and the standard library all work |
+| Python | [Pyodide](https://pyodide.org) — CPython 3.14 itself compiled to WebAssembly. About 12 MB the first time, then cached by your browser. `input()`, `sys.stdin`, `sys.exit` and the whole standard library work |
 
 Because the program is a real thread of its own, **Stop genuinely stops it** — even a `while (true)`.
 
@@ -292,10 +292,10 @@ against a stand-in for a Piston server — and saving work back where it came fr
 folder is packed into, the scratch file's home on disk, the reopen bar and putting tabs back
 with their cursors).
 
-Python is the one runtime the test cannot use for real: Pyodide is a 12 MB download and the
-test sandbox has no internet. `tests/fixtures/pyodide/` answers the same handful of calls, so
-the plumbing around Python is still checked — output, `input()`, importing the file beside it,
-tracebacks and exit codes — without an interpreter being involved.
+Python is checked against the real thing. `npm install` puts a copy of Pyodide in
+`tests/node_modules`, and the test serves it from there, so real CPython runs with no internet:
+the standard library, `input()`, importing the file beside it, tracebacks, `sys.exit` and the
+flushing of a `print()` that has no newline.
 
 Two things the browser will not let a test drive: the folder picker and the Save dialog, since
 both need a real person. The Save dialog is stood in for, and reopening a folder is exercised

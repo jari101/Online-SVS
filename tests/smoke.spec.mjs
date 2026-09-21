@@ -18,8 +18,9 @@ const SHOTS = path.join(here, 'screenshots');
 mkdirSync(SHOTS, { recursive: true });
 
 const localMonaco = path.join(here, 'node_modules', 'monaco-editor', 'min', 'vs', 'loader.js');
-if (!existsSync(localMonaco)) {
-  console.error('Run `npm install` inside tests/ first (it downloads a local copy of Monaco).');
+const localPyodide = path.join(here, 'node_modules', 'pyodide', 'pyodide.mjs');
+if (!existsSync(localMonaco) || !existsSync(localPyodide)) {
+  console.error('Run `npm install` inside tests/ first (it downloads local copies of Monaco and Pyodide).');
   process.exit(1);
 }
 
@@ -152,9 +153,9 @@ try {
     // There is no code runner built into the app any more, so give the test one to talk to.
     // The routes above answer it; nothing leaves the sandbox.
     window.SVS_PISTON_URL = 'https://runner.test/api/v2/piston';
-    // Python normally means a 12 MB download from a CDN. tests/fixtures/pyodide answers the
-    // same calls, so the plumbing around Python can be checked without an interpreter.
-    window.SVS_PYODIDE_BASE = `${location.origin}/tests/fixtures/pyodide/`;
+    // The real Pyodide, from the local npm copy rather than the CDN, so the test runs real
+    // CPython without needing internet. Production loads the same files from CONFIG.pyodideBase.
+    window.SVS_PYODIDE_BASE = `${location.origin}/tests/node_modules/pyodide/`;
     window.SVS_DEBUG = true; // exposes window.SVS for the checks below
   }, `${BASE}/tests/node_modules/monaco-editor/min`);
 
@@ -499,7 +500,7 @@ try {
       await fs.createFile('', 'tool.py');
       await fs.writeText('tool.py', 'NAME = "tool.py"\n');
       await fs.createFile('', 'start.py');
-      await fs.writeText('start.py', 'from tool import NAME\nprint(NAME)\nanswer = input()\nprint(answer)\n');
+      await fs.writeText('start.py', 'import math\nfrom tool import NAME\nprint(NAME, math.sqrt(16))\nanswer = input()\nprint(answer)\n');
     });
     await page.hover('#view-explorer');
     await page.click('[data-action="refresh"]');
@@ -511,11 +512,11 @@ try {
 
     pistonCalls.length = 0;
     await page.keyboard.press('Control+Enter');
-    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 30000 });
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 120000 });
     const output = await page.textContent('#output-text');
     assert.equal(pistonCalls.length, 0, 'Python must not need a server');
-    assert.match(output, /Running start\.py with Python 3\.14\.0-test/);
-    assert.match(output, /tool\.py/, 'the companion file must be importable');
+    assert.match(output, /Running start\.py with Python 3\.\d+/);
+    assert.match(output, /tool\.py 4\.0/, 'the companion file and the standard library must both be there');
     assert.match(output, /typed by the test/, 'input() must read the Input tab');
     assert.match(output, /Exit code 0/);
     assert.equal(await page.textContent('#output-where'), 'in your browser');
@@ -524,14 +525,64 @@ try {
     await page.click('.panel-tab[data-tab="output"]');
   });
 
-  await step('a Python traceback is shown and the exit code is not claimed to be zero', async () => {
+  await step('a Python traceback points at your line, without the interpreter plumbing', async () => {
     await page.evaluate(() => window.SVS.getEditor().setValue('print("before")\nmissing_name\n'));
     await page.click('#btn-run');
-    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 30000 });
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 60000 });
     const output = await page.textContent('#output-text');
     assert.match(output, /before/);
     assert.match(output, /NameError: name 'missing_name' is not defined/);
+    assert.match(output, /File "start\.py", line 2/, 'the traceback should name your file and line');
+    assert.doesNotMatch(output, /_pyodide/, 'Pyodide\'s own frames say nothing about your program');
+    assert.doesNotMatch(output, /eval_code_async/);
     assert.match(output, /Exit code 1/);
+  });
+
+  await step('a print() with no newline is not held back into the next run', async () => {
+    // Python buffers stdout. Without a flush at the end of a run, "Enter name: " would sit in
+    // the buffer and appear at the top of whatever you ran next.
+    await page.evaluate(() => window.SVS.getEditor().setValue('print("Enter name: ", end="")\n'));
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 60000 });
+    assert.match(await page.textContent('#output-text'), /Enter name: /);
+
+    await page.evaluate(() => window.SVS.getEditor().setValue('print("a clean start")\n'));
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 60000 });
+    const next = await page.textContent('#output-text');
+    assert.match(next, /a clean start/);
+    assert.doesNotMatch(next, /Enter name/, 'last run\'s output must not turn up in this one');
+  });
+
+  await step('sys.exit(3) is an exit code, not a crash', async () => {
+    await page.evaluate(() => window.SVS.getEditor().setValue('import sys\nprint("leaving")\nsys.exit(3)\n'));
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 60000 });
+    const output = await page.textContent('#output-text');
+    assert.match(output, /leaving/);
+    assert.match(output, /Exit code 3/);
+    assert.doesNotMatch(output, /Traceback/, 'sys.exit is not an error');
+  });
+
+  await step('variables do not survive into the next Python run', async () => {
+    await page.evaluate(() => window.SVS.getEditor().setValue('leftover = 42\nprint("set it")\n'));
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 60000 });
+    await page.evaluate(() => window.SVS.getEditor().setValue('print(leftover)\n'));
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 60000 });
+    assert.match(await page.textContent('#output-text'), /NameError/);
+  });
+
+  await step('editing a Python file beside yours takes effect on the next run', async () => {
+    await page.click('.tree-row[data-path="start.py"]');
+    await page.waitForSelector('.tab.active:has-text("start.py")');
+    await page.evaluate(() => window.SVS.getEditor().setValue('from tool import NAME\nprint(NAME)\n'));
+    await page.evaluate(() => window.SVS.fs.writeText('tool.py', 'NAME = "edited tool.py"\n'));
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 60000 });
+    // Python caches imports, so a stale sys.modules entry would still show the old text.
+    assert.match(await page.textContent('#output-text'), /edited tool\.py/);
   });
 
   await step('Run sends a C++ file and its companions to the runner, but not data or secrets', async () => {
@@ -739,7 +790,7 @@ try {
     await page.waitForFunction(() => document.getElementById('output-text').textContent.includes('Exit code'), null, { timeout: 30000 });
     assert.equal(pistonCalls.length, 0, 'Python must never reach a server');
     const output = await page.textContent('#output-text');
-    assert.match(output, /Running main\.py with Python 3\.14\.0-test/);
+    assert.match(output, /Running main\.py with Python 3\.\d+/);
     assert.match(output, /from the scratch file/);
     assert.equal(await page.textContent('#output-where'), 'in your browser');
   });

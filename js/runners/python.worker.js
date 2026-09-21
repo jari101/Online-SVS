@@ -20,8 +20,19 @@
 /** Where your program's files live inside Python's own little file system. */
 const DIR = '/svs';
 
+// sys.exit() travels two ways out of Pyodide: to the `await` below, where it becomes the
+// program's exit code, and to Pyodide's own event loop, which reports it as a crash. The
+// second one is noise about something already handled, so it is swallowed here.
+self.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  if (reason?.type === 'SystemExit' || /^SystemExit\b/m.test(String(reason?.message || ''))) {
+    event.preventDefault();
+  }
+});
+
 let pyodide = null;
 let booting = null;
+let pythonVersion = null;
 
 function send(message) {
   self.postMessage(message);
@@ -67,11 +78,14 @@ async function boot(base) {
     // connected once it is up.
     pyodide = await loadPyodide({ indexURL: base, stdout: () => {}, stderr: () => {} });
     captureOutput();
-    pyodide.runPython(`
+    // Pyodide's own version ("314.0.7") is not a Python version anyone would recognise,
+    // so ask the interpreter what it actually is.
+    pythonVersion = pyodide.runPython(`
 import os, sys
 os.makedirs(${JSON.stringify(DIR)}, exist_ok=True)
 if ${JSON.stringify(DIR)} not in sys.path:
     sys.path.insert(0, ${JSON.stringify(DIR)})
+sys.version.split()[0]
 `);
     return pyodide;
   })();
@@ -127,9 +141,39 @@ function writeFiles(files) {
   }
 }
 
+/**
+ * Push out whatever print() is still holding. Python buffers stdout, so a `print(x, end='')`
+ * at the end of a program would otherwise sit in the buffer and turn up in the next run.
+ */
+function flush() {
+  try {
+    pyodide.runPython('import sys\nsys.stdout.flush()\nsys.stderr.flush()');
+  } catch {
+    /* the interpreter is in no state to flush; nothing more we can do */
+  }
+}
+
+/**
+ * Take Pyodide's own plumbing off the top of a traceback. Every error arrives with two frames
+ * from `_pyodide/_base.py`, which say nothing about your program. Frames from the standard
+ * library are left in place: if the error happened inside json or datetime, that matters.
+ */
+function trimTraceback(text) {
+  const lines = String(text).split('\n');
+  const out = [];
+  let dropping = false;
+  for (const line of lines) {
+    const frame = /^\s+File "([^"]*)"/.exec(line);
+    if (frame) dropping = frame[1].includes('/_pyodide/');
+    else if (!/^\s/.test(line)) dropping = false;   // the final "SomeError: ..." line
+    if (!dropping) out.push(line);
+  }
+  return out.join('\n');
+}
+
 /** Python names the code it was handed `<exec>`; your file's real name is more use. */
 function readableTraceback(message, entryName) {
-  return String(message).split('"<exec>"').join(`"${entryName}"`).replace(/\n+$/, '');
+  return trimTraceback(String(message).split('"<exec>"').join(`"${entryName}"`)).replace(/\n+$/, '');
 }
 
 /** `sys.exit(2)` is not a crash — it is a program choosing its own exit code. */
@@ -158,7 +202,7 @@ self.onmessage = async (event) => {
     });
     return;
   }
-  send({ type: 'ready', version: pyodide.version });
+  send({ type: 'ready', version: pythonVersion || pyodide.version });
 
   const entry = message.files.find((f) => f.name === message.entryName) || message.files[0];
   let namespace = null;
@@ -173,8 +217,10 @@ self.onmessage = async (event) => {
     namespace.set('__file__', `${DIR}/${entry.name}`);
 
     await pyodide.runPythonAsync(entry.content, { globals: namespace, filename: entry.name });
+    flush();
     send({ type: 'done', code: 0 });
   } catch (err) {
+    flush();   // whatever the program managed to print belongs above its traceback
     const text = err?.message || String(err);
     if (err?.type === 'SystemExit') {
       send({ type: 'done', code: exitCodeFrom(text) });
