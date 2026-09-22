@@ -1,6 +1,8 @@
 // js/fs/util.js — helpers shared by both file-system backends.
 // Paths are always relative to the opened folder, use "/" and have no leading slash ("css/style.css").
 
+import { CONFIG } from '../config.js';
+
 export function segments(path) {
   return path.split('/').filter(Boolean);
 }
@@ -16,6 +18,14 @@ export function parentOf(path) {
 
 export function baseName(path) {
   return path.split('/').pop();
+}
+
+/**
+ * Is any part of this path a name the explorer never shows? (node_modules, .git, the
+ * __MACOSX folder macOS hides inside its zips — see CONFIG.ignoredNames.)
+ */
+export function isIgnoredPath(path) {
+  return segments(path).some((name) => CONFIG.ignoredNames.includes(name));
 }
 
 export function extOf(path) {

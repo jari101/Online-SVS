@@ -3,7 +3,8 @@
 A code editor that runs in your browser, in the spirit of OnlineGDB, with four things
 OnlineGDB does not have:
 
-- **Work on a whole folder** from your PC, with a VS Code-style explorer, tabs and editor.
+- **Work on a whole folder** from your PC — or **straight out of a `.zip`** — with a VS Code-style
+  explorer, tabs and editor.
 - **Live Server**: preview a website as you type and see it reload, like the VS Code extension. *(Phase 2)*
 - **Everything goes back where it came from.** Files save into the folder you opened them from,
   that folder is offered again on your next visit, and even the scratch file can be given a
@@ -20,7 +21,7 @@ Plus the classic OnlineGDB part: pick a language, write a program, press **Run**
 | 2 | Live server (Service Worker), preview panel, refresh-on-type when the code has no errors | **done** |
 | 3 | Run button for C, C++, Python, Java, JavaScript and more via the Piston API, stdin input | **done** |
 | 4 | Polish: search, rename/delete, quick open, image preview, more settings | planned |
-| 5 | Saving back where it came from: reopen your last folder and its tabs, a home on disk for the scratch file, Save Folder as a zip | **done** |
+| 5 | Saving back where it came from: reopen your last folder and its tabs, a home on disk for the scratch file, open a folder from a `.zip` and save it back into that same zip | **done** |
 
 ## Try it
 
@@ -30,8 +31,11 @@ Open the site in **Chrome, Edge, Opera or Brave** for the full experience.
    The text is remembered in your own browser (localStorage), so a refresh does not lose it.
 2. Click **Open Folder** and pick a folder from your computer. The browser asks for permission once.
    Edit files, then press **Ctrl+S** to write them straight back to your disk.
-3. No folder handy? Use **Open Folder ▾ → Open Sample Project** for a small website that lives in memory.
-4. Come back later and the bar under the title bar offers your last folder: **Reopen** puts it
+3. Got a `.zip` instead of a folder? **Drop it anywhere on the page** — or use **Open Folder ▾ →
+   Open Zip File…** — and its files open just like a folder. **Save Folder** packs them back into
+   the same zip when you are done.
+4. No folder handy? Use **Open Folder ▾ → Open Sample Project** for a small website that lives in memory.
+5. Come back later and the bar under the title bar offers your last folder: **Reopen** puts it
    back, along with the files you had open and the line each one was on.
 
 Firefox and Safari do not have the File System Access API — there is no way for any website to
@@ -65,6 +69,14 @@ that it has a home: the tab stops saying `untitled` and shows the real file name
 As…** (or `Ctrl+Shift+S` in scratch mode) moves it somewhere else. Changing the language lets go
 of the home, because `main.cpp` should not quietly start receiving Python.
 
+**A folder opened from a zip.** Its files are unpacked into the editor, so saving a tab does not
+reach your disk on its own — the status bar says **· not on your disk yet** until you use **Save
+Folder**. That packs the whole project back up as a zip *of the same shape it arrived in*: a zip
+that held `hello/index.html` gets `hello/index.html` back, and one whose files sat at its root
+stays flat, so a zip never gains a folder by being opened here. In Chrome, Edge, Opera and Brave
+it overwrites the very `.zip` you opened (the browser asks once); elsewhere it downloads the zip
+under its original name for you to put back yourself.
+
 **Firefox and Safari, and the sample project.** These cannot be written to at all, so saving keeps
 the edit in the editor's copy of the folder and the status bar says **· not on your disk yet** in
 yellow until you do something about it. That something is **Save Folder** — the folder item in the
@@ -76,6 +88,32 @@ Save Folder works in Chrome too, as a quick way to take a copy of the whole fold
 The zip is written by `js/fs/zip.js` in about ninety lines, with no library. Entries are stored
 rather than compressed, so the file is a little larger than a normal zip but every unzip program
 reads it.
+
+### Opening a zip
+
+There are three ways in, and all three end up in the same place — the files open as a folder,
+and **Save Folder** puts them back:
+
+- **Drop a `.zip` anywhere on the page.** An overlay appears while you drag, so you know what
+  letting go will do.
+- **Open Folder ▾ → Open Zip File…**
+- **Click a `.zip` inside a folder you already have open.** It asks first, because the zip takes
+  that folder's place.
+
+A zip almost always holds one folder — `hello.zip` unzips to `hello/index.html` — so that folder
+becomes the project root and `index.html` is right where you expect it. A zip with several things
+at the top level has no such folder to peel off, and keeps its own name instead. The `__MACOSX`
+folder that macOS hides inside every zip it makes is left out, along with `node_modules` and
+`.git`, exactly as when you open a folder.
+
+The reading is done by `js/fs/unzip.js`, the other half of `js/fs/zip.js` and about as long.
+A zip is read from the back: the record at the very end says where the list of files is, and
+that list says where each file's bytes are, so nothing has to be guessed at. Two kinds of entry
+cover every zip you are likely to meet — plain *stored* bytes, and *deflate*, which is what
+Windows, macOS and 7-Zip produce. Deflate is undone by `DecompressionStream`, which the browser
+already has, so there is still no library. Every file's checksum is checked as it comes out, and
+a zip that is damaged, password-protected or in the Zip64 format says so plainly and leaves the
+folder you had open alone.
 
 ### Live Server
 
@@ -227,6 +265,8 @@ js/languages.js       the languages you can write and run, starter programs, com
 js/fs/index.js        one API for files; native.js = File System Access, memory.js = in-memory fallback + sample
 js/fs/handles.js      stores folder and file handles in IndexedDB so they survive a visit
 js/fs/zip.js          builds a .zip in the browser, no library (uncompressed entries)
+js/fs/unzip.js        reads a .zip back, stored and deflated, no library
+js/drop.js            drag a .zip onto the window to open it
 tests/                automated browser test (see below)
 ```
 
@@ -249,13 +289,18 @@ copy of Monaco later is a one-line change and needs no other edits.
 `tests/smoke.spec.mjs` starts a local server, opens the app in headless Chromium and clicks
 through the main features: scratch mode, folders, keyboard navigation, the confirmation dialog,
 the live server (preview, CSS hot swap, pausing on errors, the new-tab URL, 404 page, stop),
-the Run button against a stand-in for the Piston service, and saving work back where it came
-from (the zip a folder is packed into, the scratch file's home on disk, the reopen bar and
-putting tabs back with their cursors).
+the Run button against a stand-in for the Piston service, saving work back where it came from
+(the zip a folder is packed into, the scratch file's home on disk, the reopen bar and putting
+tabs back with their cursors), and opening a folder out of a zip — a compressed one the test
+builds itself, since the app's own writer never makes one — including the folder it peels off,
+the `__MACOSX` it leaves out, a zip inside a zip, and writing the edits back in the shape they
+arrived in.
 
-Two things the browser will not let a test drive: the folder picker and the Save dialog, since
-both need a real person. The Save dialog is stood in for, and reopening a folder is exercised
-through the debug hook (`window.SVS`, only present with `?debug`).
+Three things the browser will not let a test drive: the folder picker, the Save dialog and
+dropping a file on the window, since all three need a real person — a drop a script stages is
+marked untrusted, and the app ignores those on purpose. The pickers are stood in for, and
+opening a folder or a zip without them goes through the debug hook (`window.SVS`, only present
+with `?debug`).
 
 ```bash
 cd tests

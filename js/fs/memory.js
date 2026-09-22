@@ -1,18 +1,20 @@
 // js/fs/memory.js — a folder that lives only in the browser tab's memory.
-// Used for the built-in sample project and as the read-only fallback in browsers that
-// lack the File System Access API (Firefox, Safari): files are read through a normal
-// <input type="file" webkitdirectory> and edits stay in memory, so "Save Folder" packs the whole
-// folder into a zip to unzip back over the original.
+// Used for three things: the built-in sample project, a folder opened from a .zip, and the
+// read-only fallback in browsers that lack the File System Access API (Firefox, Safari), where
+// files are read through a normal <input type="file" webkitdirectory>. Edits stay in memory, so
+// "Save Folder" packs the whole folder back into a zip.
 
-import { CONFIG } from '../config.js';
-import { segments, join, sortNodes, parentOf, baseName } from './util.js';
+import { segments, join, sortNodes, parentOf, baseName, isIgnoredPath } from './util.js';
 
 /**
  * Build a memory backend.
- * @param {string} name       folder name shown in the explorer
- * @param {Map|Object} files  path -> string | ArrayBuffer | File
+ * @param {string} name        folder name shown in the explorer
+ * @param {Map|Object} files   path -> string | ArrayBuffer | File
+ * @param {string[]} [options.dirs] folders to keep even though no file lives in them. A zip
+ *        records its empty folders, and they should still be there when it is written back out.
+ * @param {object} [options.zip] the .zip this folder was read from — see js/fs/index.js
  */
-export function fromFiles(name, files, { readOnly = false, sample = false } = {}) {
+export function fromFiles(name, files, { readOnly = false, sample = false, dirs: extraDirs = [], zip = null } = {}) {
   const entries = new Map(); // path -> { data }
   const dirs = new Set(['']);
 
@@ -23,8 +25,13 @@ export function fromFiles(name, files, { readOnly = false, sample = false } = {}
 
   const list = files instanceof Map ? files : Object.entries(files);
   for (const [path, data] of list) {
-    if (segments(path).some((s) => CONFIG.ignoredNames.includes(s))) continue;
+    if (isIgnoredPath(path)) continue;
     entries.set(path, { data });
+    addAncestors(path);
+  }
+  for (const path of extraDirs) {
+    if (!path || isIgnoredPath(path)) continue;
+    dirs.add(path);
     addAncestors(path);
   }
 
@@ -37,10 +44,13 @@ export function fromFiles(name, files, { readOnly = false, sample = false } = {}
   }
 
   return {
-    kind: 'memory',
+    // A zip is still a folder in memory, but it knows where it came from, so saving can put it
+    // back there instead of leaving a new file in your Downloads.
+    kind: zip ? 'zip' : 'memory',
     name,
     readOnly,
     sample,
+    zip,
 
     async tree() {
       return buildTree(name, entries, dirs);

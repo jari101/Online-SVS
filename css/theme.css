@@ -70,6 +70,7 @@
   --icon-java: #cc3e44;
   --icon-image: #a074c4;
   --icon-svg: #ffb13b;
+  --icon-archive: #dcb67a;        /* same tone as a folder: a zip is a folder in a box */
   --icon-default: #8b8b8b;
 
   /* Scrollbars */

@@ -21,6 +21,7 @@ import { initStatusBar } from './statusbar.js';
 import { initLive, toggle as toggleLive, stop as stopLive } from './live.js';
 import { initRunner, run as runProgram } from './runner.js';
 import { initRecent, rememberFolder, offerReopen, reopenNow } from './recent.js';
+import { initDrop } from './drop.js';
 import { initSaving, saveScratch, saveScratchAs, saveFolderZip, supportsSaveAs } from './saving.js';
 import { $ } from './dom.js';
 
@@ -31,10 +32,11 @@ async function boot() {
   initPanel();
   initStatusBar();
   initTabs($('tabs'));
-  initExplorer($('view-explorer'));
+  initExplorer($('view-explorer'), { openZip: openZipFromFolder });
   renderSettings($('view-settings'));
   initScratch($('language-select'));
   await initLive();
+  initDrop({ open: (file, handle) => openZipFile(file, { handle }) });
   wireTitleBar();
   wireCommands();
   wireShortcuts();
@@ -100,14 +102,20 @@ function updateTitle() {
 /* ---------- Folder flows ---------- */
 
 async function openFolderFlow(source) {
-  if (!state.editorReady) {
-    toast('The editor is still loading. Try again in a moment.', 'warning');
-    return;
-  }
+  if (!editorIsReady()) return;
 
   let backend;
   try {
-    backend = source === 'sample' ? fs.sampleFolder() : await fs.pickFolder();
+    if (source === 'sample') {
+      backend = fs.sampleFolder();
+    } else if (source === 'zip') {
+      const picked = await fs.pickZip();
+      if (!picked) return; // the user cancelled the picker
+      // Read the zip before anything is torn down, so a damaged one leaves the open folder alone.
+      backend = await fs.folderFromZip(picked.file, { handle: picked.handle });
+    } else {
+      backend = await fs.pickFolder();
+    }
   } catch (err) {
     reportError(err);
     return;
@@ -115,6 +123,58 @@ async function openFolderFlow(source) {
   if (!backend) return; // the user cancelled the picker
 
   await adoptFolder(backend);
+}
+
+function editorIsReady() {
+  if (state.editorReady) return true;
+  toast('The editor is still loading. Try again in a moment.', 'warning');
+  return false;
+}
+
+/**
+ * Open a .zip as the project. Used by the menu, by a zip dropped on the window and by one
+ * clicked in the Explorer. `handle` is the zip on disk when the browser gave us one to write to.
+ */
+export async function openZipFile(source, { handle = null, fileName = null } = {}) {
+  if (!editorIsReady()) return;
+  let backend;
+  try {
+    backend = await fs.folderFromZip(source, { handle, fileName });
+  } catch (err) {
+    reportError(err);
+    return;
+  }
+  await adoptFolder(backend);
+}
+
+/**
+ * Open a .zip that lives inside the folder you already have open. It takes the folder's place,
+ * so it asks first — and it keeps hold of the zip's own file handle, which is what lets Save
+ * Folder write your edits back into that zip where it sits.
+ */
+async function openZipFromFolder(path) {
+  const name = fs.baseName(path);
+  const ok = await confirmDialog({
+    title: `Open "${name}" as a project?`,
+    message:
+      `"${state.folder.name}" will be closed and the contents of ${name} opened in its place. ` +
+      'Save Folder packs your edits back into the zip.',
+    confirmLabel: 'Open the zip',
+    cancelLabel: 'Cancel',
+  });
+  if (!ok) return;
+
+  // Both of these have to happen while the folder holding the zip is still the open one.
+  let handle;
+  let data;
+  try {
+    handle = await fs.fileHandleFor(path);
+    data = await fs.readBinary(path);
+  } catch (err) {
+    reportError(err);
+    return;
+  }
+  await openZipFile(data, { handle, fileName: name });
 }
 
 /**
@@ -144,7 +204,8 @@ async function adoptFolder(backend, restore = null) {
     kind: backend.kind,
     readOnly: backend.readOnly,
     sample: backend.sample,
-    needsExport: false, // set once an edit is saved somewhere the disk cannot see
+    zip: backend.zip || null, // { handle, fileName, wrapped } when it was opened from a .zip
+    needsExport: false,       // set once an edit is saved somewhere the disk cannot see
   };
   setMode('folder');
   emit('folder', state.folder);
@@ -175,9 +236,21 @@ async function adoptFolder(backend, restore = null) {
     }
   }
 
-  if (backend.sample) toast('Sample project opened. It lives in memory only: refreshing the page resets it.', 'info', 4500);
-  else if (backend.readOnly) toast(`Opened "${backend.name}" read-only. This browser cannot write to it, so Save Folder packs your edits back up as a zip.`, 'warning', 6000);
-  else toast(`Opened "${backend.name}". Ctrl+S saves straight back into it.`, 'success');
+  if (backend.kind === 'zip') {
+    toast(
+      `Opened "${backend.zip.fileName}". Its files are in the editor — ` +
+      (backend.zip.handle
+        ? 'Save Folder packs them back into that same zip.'
+        : `Save Folder downloads ${backend.zip.fileName} with your edits.`),
+      'success', 6000,
+    );
+  } else if (backend.sample) {
+    toast('Sample project opened. It lives in memory only: refreshing the page resets it.', 'info', 4500);
+  } else if (backend.readOnly) {
+    toast(`Opened "${backend.name}" read-only. This browser cannot write to it, so Save Folder packs your edits back up as a zip.`, 'warning', 6000);
+  } else {
+    toast(`Opened "${backend.name}". Ctrl+S saves straight back into it.`, 'success');
+  }
 }
 
 /** Put back the tabs a folder had open last time. Files that have since gone are counted. */
@@ -212,8 +285,11 @@ async function closeFolderFlow() {
       title: 'Close folder without saving?',
       message: unsaved
         ? 'Some files have unsaved changes. They will be lost when the folder is closed.'
-        : `Edits to "${state.folder.name}" are only in the editor — this browser cannot write to the folder itself. ` +
-          'Closing it now loses them. Save Folder downloads them as a zip first.',
+        : state.folder.zip
+          ? `Edits to "${state.folder.name}" are only in the editor — they have not gone back into ` +
+            `${state.folder.zip.fileName} yet. Closing it now loses them. Save Folder puts them in first.`
+          : `Edits to "${state.folder.name}" are only in the editor — this browser cannot write to the folder itself. ` +
+            'Closing it now loses them. Save Folder downloads them as a zip first.',
       confirmLabel: 'Close without saving',
       cancelLabel: 'Keep editing',
       danger: true,
@@ -236,6 +312,7 @@ async function closeFolderFlow() {
 
 const commands = {
   'open-folder': () => openFolderFlow('pick'),
+  'open-zip': () => openFolderFlow('zip'),
   'open-sample': () => openFolderFlow('sample'),
   'close-folder': () => closeFolderFlow(),
   'reopen-folder': () => reopenNow(),
@@ -380,7 +457,9 @@ function wireShortcuts() {
 if (window.SVS_DEBUG || new URLSearchParams(location.search).has('debug')) {
   // adoptFolder is here so the tests can exercise reopening a folder and putting its tabs
   // back without driving the browser's folder picker, which no test can click.
-  window.SVS = { state, fs, getEditor, getMonaco, runCommand, adoptFolder };
+  // openZipFile is here for the same reason: the file picker a zip normally arrives through
+  // cannot be clicked by a test either.
+  window.SVS = { state, fs, getEditor, getMonaco, runCommand, adoptFolder, openZipFile };
 }
 
 boot().catch((err) => {

@@ -15,7 +15,8 @@ export const CONFIG = {
   pistonUrl: window.SVS_PISTON_URL || 'https://emkc.org/api/v2/piston',
 
   // Folder names the explorer never reads (they are huge and never part of a website).
-  ignoredNames: ['node_modules', '.git', 'dist', 'build', '.cache', '.DS_Store', 'Thumbs.db'],
+  // '__MACOSX' is the folder of metadata macOS quietly adds to every zip it makes.
+  ignoredNames: ['node_modules', '.git', 'dist', 'build', '.cache', '.DS_Store', 'Thumbs.db', '__MACOSX'],
 
   // Language used for a brand-new scratch file.
   defaultLanguage: 'cpp',

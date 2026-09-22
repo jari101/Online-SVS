@@ -40,15 +40,23 @@ export function initStatusBar() {
   const updateFolder = () => {
     const app = $('app');
     if (state.folder) {
+      const zip = state.folder.zip;
       let note = '';
       if (state.folder.readOnly) note = ' (read-only)';
+      else if (zip) note = ' (from a zip)';
       else if (state.folder.sample) note = ' (sample, in memory)';
       // Loud on purpose: these edits exist only in the editor until the folder is saved out.
       if (state.folder.needsExport) note += ' · not on your disk yet';
       folder.textContent = state.folder.name + note;
-      folder.title = state.folder.kind === 'native'
-        ? `Saving writes into "${state.folder.name}" on your disk. Click to download a zip copy of it.`
-        : `This browser cannot write to "${state.folder.name}". Click to download ${state.folder.name}.zip and unzip it over the original.`;
+      if (zip) {
+        folder.title = zip.handle
+          ? `Opened from ${zip.fileName}. Click to pack your edits back into that same zip.`
+          : `Opened from ${zip.fileName}. Click to download ${zip.fileName} with your edits in it.`;
+      } else if (state.folder.kind === 'native') {
+        folder.title = `Saving writes into "${state.folder.name}" on your disk. Click to download a zip copy of it.`;
+      } else {
+        folder.title = `This browser cannot write to "${state.folder.name}". Click to download ${state.folder.name}.zip and unzip it over the original.`;
+      }
       folder.classList.toggle('warn', Boolean(state.folder.needsExport));
       app.classList.toggle('folder-readonly', Boolean(state.folder.readOnly));
     } else {
