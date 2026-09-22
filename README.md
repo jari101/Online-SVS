@@ -142,10 +142,31 @@ docker exec piston /piston/packages/ppman install python 3.12.0
 docker exec piston /piston/packages/ppman install gcc 10.2.0
 ```
 
-Put `http://localhost:2000/api/v2` in **Settings → Code runner** and press **Test connection**.
-For a Piston that is not on your own machine, it must be reachable over `https://` and must allow
-requests from wherever you opened Online SVS (a CORS header). The **Key** field is only for a
-public Piston that whitelisted you; one you run yourself needs none.
+**Piston sends no CORS headers of its own**, so a browser will refuse to talk to it directly —
+this is true even on your own machine. Put something in front of it that adds them. Caddy is two
+lines:
+
+```
+# Caddyfile — then: caddy run
+runner.example.com {
+    header Access-Control-Allow-Origin "https://your-site.example"
+    header Access-Control-Allow-Headers "Content-Type, Authorization"
+    @options method OPTIONS
+    respond @options 204
+    reverse_proxy localhost:2000
+}
+```
+
+Point **Settings → Code runner** at that address, ending in `/api/v2`, and press
+**Test connection**. The **Key** field is only for a public Piston that whitelisted you; one you
+run yourself needs none.
+
+**A Piston on your own machine only serves you.** `http://localhost` means *the computer the
+browser is on*, so it is your own PC and nobody else's. It also has to clear the browser's local
+network rules: from Chrome 142 onwards, a site on the public internet reaching anything on
+loopback is [behind a permission prompt](https://developer.chrome.com/blog/local-network-access).
+Serving Online SVS locally as well — same machine, same kind of address — avoids that. To give
+other people a Run button, the runner needs a real domain with HTTPS.
 
 **Which files are sent.** Only a run that goes to your code runner sends anything at all. The
 file you run always goes. Source files of the same kind sitting beside it go too, so
