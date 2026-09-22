@@ -23,6 +23,10 @@ import { initRunner, run as runProgram } from './runner.js';
 import { initRecent, rememberFolder, offerReopen, reopenNow } from './recent.js';
 import { initDrop } from './drop.js';
 import { initSaving, saveScratch, saveScratchAs, saveFolderZip, supportsSaveAs } from './saving.js';
+import { initSearch, focusSearch, selectionInEditor } from './search.js';
+import { openQuickOpen } from './quickopen.js';
+import { initWatcher, checkNow } from './watch.js';
+import { verifyPermission } from './fs/handles.js';
 import { $ } from './dom.js';
 
 async function boot() {
@@ -33,10 +37,14 @@ async function boot() {
   initStatusBar();
   initTabs($('tabs'));
   initExplorer($('view-explorer'), { openZip: openZipFromFolder });
+  initSearch($('view-search'));
   renderSettings($('view-settings'));
   initScratch($('language-select'));
   await initLive();
-  initDrop({ open: (file, handle) => openZipFile(file, { handle }) });
+  initDrop({
+    open: (file, handle) => openZipFile(file, { handle }),
+    openDropped: (source) => openDroppedFolder(source),
+  });
   wireTitleBar();
   wireCommands();
   wireShortcuts();
@@ -59,7 +67,11 @@ async function boot() {
   // Folders and the live server need the editor, so their buttons wake up only now.
   $('btn-open-folder').disabled = false;
   $('btn-live').disabled = false;
+  $('activity-search').disabled = false;
+  $('activity-search').title = 'Search (Ctrl+Shift+F)';
+  $('activity-search').setAttribute('aria-label', 'Search');
   initRunner();
+  initWatcher();
 
   applySettings();
   emit('settings', state.settings);
@@ -129,6 +141,39 @@ function editorIsReady() {
   if (state.editorReady) return true;
   toast('The editor is still loading. Try again in a moment.', 'warning');
   return false;
+}
+
+/**
+ * Open a folder that was dropped on the window. Chrome, Edge, Opera and Brave hand over a
+ * handle, which is the same thing the picker gives out — so it has to ask for permission to
+ * write, exactly as reopening a remembered folder does. Other browsers hand over the older
+ * read-only "entry" interface, and the folder is read into memory instead.
+ */
+export async function openDroppedFolder(source) {
+  if (!editorIsReady()) return;
+
+  let backend;
+  try {
+    if (source.handle) {
+      if (!(await verifyPermission(source.handle, { request: true }))) {
+        toast(
+          `Permission to open "${source.handle.name}" was not given, so nothing was opened. `
+          + 'Drop it again, or use Open Folder.',
+          'warning', 5000,
+        );
+        return;
+      }
+      backend = fs.folderFromHandle(source.handle);
+      await backend.tree(); // fails now rather than halfway through opening
+    } else {
+      backend = await fs.folderFromDirectoryEntry(source.entry);
+    }
+  } catch (err) {
+    reportError(err);
+    return;
+  }
+
+  await adoptFolder(backend);
 }
 
 /**
@@ -335,6 +380,9 @@ const commands = {
   'stop-live': () => stopLive(),
   'explorer': () => showSidebarView('explorer'),
   'settings': () => showSidebarView('settings'),
+  // Whatever is selected in the editor is the thing you most likely want to look for.
+  'search': () => focusSearch(selectionInEditor()),
+  'quick-open': () => openQuickOpen(),
   'run': () => runProgram(),
 };
 
@@ -427,6 +475,9 @@ function wireShortcuts() {
       else if (key === 'b' && !e.shiftKey) { e.preventDefault(); runCommand('toggle-sidebar'); }
       else if (key === 'j' && !e.shiftKey) { e.preventDefault(); runCommand('toggle-panel'); }
       else if (key === 'e' && e.shiftKey) { e.preventDefault(); runCommand('explorer'); }
+      else if (key === 'f' && e.shiftKey) { e.preventDefault(); runCommand('search'); }
+      // Ctrl+P is the browser's print dialog, which is not what anyone wants in an editor.
+      else if (key === 'p' && !e.shiftKey) { e.preventDefault(); runCommand('quick-open'); }
       else if (key === ',') { e.preventDefault(); runCommand('settings'); }
       else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runCommand('run'); }
     },
@@ -459,7 +510,9 @@ if (window.SVS_DEBUG || new URLSearchParams(location.search).has('debug')) {
   // back without driving the browser's folder picker, which no test can click.
   // openZipFile is here for the same reason: the file picker a zip normally arrives through
   // cannot be clicked by a test either.
-  window.SVS = { state, fs, getEditor, getMonaco, runCommand, adoptFolder, openZipFile };
+  // checkNow lets a test ask the outside-change watcher to look now instead of waiting for
+  // its three-second timer.
+  window.SVS = { state, fs, getEditor, getMonaco, runCommand, adoptFolder, openZipFile, checkNow };
 }
 
 boot().catch((err) => {

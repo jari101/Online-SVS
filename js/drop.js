@@ -1,22 +1,29 @@
-// js/drop.js — drag a .zip onto the window and it opens as a folder.
+// js/drop.js — drag a folder or a .zip onto the window and it opens as your project.
 //
-// The quickest way in: no menu, no picker, no permission dialog. While something is being
-// dragged over the page an overlay says what will happen, so a drop is never a surprise.
+// The quickest way in: no menu, no picker. While something is being dragged over the page an
+// overlay says what will happen, so a drop is never a surprise.
 //
-// In Chrome, Edge, Opera and Brave a dropped file also comes with a *handle* to it, which is
-// the same kind of thing the folder picker gives out — and that is what lets Save Folder write
-// your edits back into the very zip you dropped. Elsewhere we only get a copy of the bytes, so
-// Save Folder downloads a new zip instead.
+// In Chrome, Edge, Opera and Brave a dropped item also comes with a *handle* to it, the same
+// kind of thing the pickers give out: a dropped folder can then be saved back into like any
+// other, and a dropped zip is written back into the very file you dropped. Elsewhere we get
+// the old "entry" interface instead, which can be read but not written, so a folder opens
+// read-only and a zip is downloaded again when you save it.
 
 import { toast } from './toast.js';
 import { $ } from './dom.js';
 
 let openZip = null;
+let openFolder = null;
 let depth = 0; // dragenter/dragleave fire for every element passed over, so they are counted
 
-/** Start listening. `open(file, handle)` is called with a dropped zip. */
-export function initDrop({ open }) {
+/**
+ * Start listening.
+ * @param {Function} open        called with a dropped zip: (file, handle)
+ * @param {Function} openDropped called with a dropped folder: ({ handle }) or ({ entry })
+ */
+export function initDrop({ open, openDropped }) {
   openZip = open;
+  openFolder = openDropped;
 
   window.addEventListener('dragenter', (e) => {
     if (!draggingFiles(e)) return;
@@ -66,23 +73,29 @@ function onDrop(e) {
   // taken out of it now; the reading and unzipping happen in the promise below.
   const item = items[0];
   const file = item.getAsFile();
+  const entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
   const handle = typeof item.getAsFileSystemHandle === 'function'
     ? item.getAsFileSystemHandle().catch(() => null)
     : Promise.resolve(null);
 
-  accept(file, handle, items.length).catch((err) => {
+  accept(file, handle, entry, items.length).catch((err) => {
     console.error(err);
     toast(err?.message || String(err), 'error');
   });
 }
 
-async function accept(file, handlePromise, dropped) {
+async function accept(file, handlePromise, entry, dropped) {
   const handle = await handlePromise;
 
-  // A dropped folder arrives as a file with no type and no size. Say so plainly rather than
-  // claiming it is a broken zip.
-  if (handle?.kind === 'directory' || (file && !file.type && !file.size)) {
-    toast(`"${file?.name || 'That'}" is a folder. Use Open Folder to open one — dropping works for .zip files.`, 'warning', 5000);
+  // A folder: open it as the project, writeable when the browser gave us a handle for it.
+  if (handle?.kind === 'directory') {
+    if (dropped > 1) toast(`Opening "${handle.name}" — only one folder can be open at a time.`, 'info', 4000);
+    await openFolder({ handle });
+    return;
+  }
+  if (entry?.isDirectory) {
+    if (dropped > 1) toast(`Opening "${entry.name}" — only one folder can be open at a time.`, 'info', 4000);
+    await openFolder({ entry });
     return;
   }
   if (!file) return;

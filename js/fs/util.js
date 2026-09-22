@@ -46,6 +46,14 @@ export function isBinaryPath(path) {
   return BINARY_EXTENSIONS.has(extOf(path));
 }
 
+// .svg is left out on purpose: it is text, so it opens in the editor where it can be edited.
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico']);
+
+/** Files the image tab can show instead of saying "binary file". */
+export function isImagePath(path) {
+  return IMAGE_EXTENSIONS.has(extOf(path));
+}
+
 /** Folders first, then alphabetical (case-insensitive) — the same order VS Code uses. */
 export function sortNodes(nodes) {
   nodes.sort((a, b) => {

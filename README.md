@@ -4,7 +4,7 @@ A code editor that runs in your browser, in the spirit of OnlineGDB, with four t
 OnlineGDB does not have:
 
 - **Work on a whole folder** from your PC — or **straight out of a `.zip`** — with a VS Code-style
-  explorer, tabs and editor.
+  explorer, tabs, editor, search, Go to file and right-click rename and delete.
 - **Live Server**: preview a website as you type and see it reload, like the VS Code extension. *(Phase 2)*
 - **Everything goes back where it came from.** Files save into the folder you opened them from,
   that folder is offered again on your next visit, and even the scratch file can be given a
@@ -20,7 +20,7 @@ Plus the classic OnlineGDB part: pick a language, write a program, press **Run**
 | 1 | VS Code Dark+ layout, Monaco editor, tabs, scratch file, open/save folders, explorer, settings | **done** |
 | 2 | Live server (Service Worker), preview panel, refresh-on-type when the code has no errors | **done** |
 | 3 | Run button for C, C++, Python, Java, JavaScript and more via the Piston API, stdin input | **done** |
-| 4 | Polish: search, rename/delete, quick open, image preview, more settings | planned |
+| 4 | Polish: search across the folder, Go to file, rename/delete, image tabs, outside-change detection, clickable error positions, drop a folder | **done** |
 | 5 | Saving back where it came from: reopen your last folder and its tabs, a home on disk for the scratch file, open a folder from a `.zip` and save it back into that same zip | **done** |
 
 ## Try it
@@ -31,9 +31,9 @@ Open the site in **Chrome, Edge, Opera or Brave** for the full experience.
    The text is remembered in your own browser (localStorage), so a refresh does not lose it.
 2. Click **Open Folder** and pick a folder from your computer. The browser asks for permission once.
    Edit files, then press **Ctrl+S** to write them straight back to your disk.
-3. Got a `.zip` instead of a folder? **Drop it anywhere on the page** — or use **Open Folder ▾ →
-   Open Zip File…** — and its files open just like a folder. **Save Folder** packs them back into
-   the same zip when you are done.
+3. **Drop a folder or a `.zip` anywhere on the page** to open it — no menu, no picker. A zip's
+   files open just like a folder's, and **Save Folder** packs them back into the same zip when
+   you are done. (**Open Folder ▾ → Open Zip File…** does the same through a picker.)
 4. No folder handy? Use **Open Folder ▾ → Open Sample Project** for a small website that lives in memory.
 5. Come back later and the bar under the title bar offers your last folder: **Reopen** puts it
    back, along with the files you had open and the line each one was on.
@@ -115,6 +115,74 @@ already has, so there is still no library. Every file's checksum is checked as i
 a zip that is damaged, password-protected or in the Zip64 format says so plainly and leaves the
 folder you had open alone.
 
+### Finding your way around a folder
+
+Once a folder is open there are three ways to get to a file, and none of them needs the mouse:
+
+- **`Ctrl+P` — Go to file.** Type a few letters of the name and press Enter. The letters do not
+  have to be next to each other: `cst` finds `css/style.css`. Matches in the file's own name are
+  offered before matches in the folders above it, and the letters that matched are highlighted so
+  you can see why a file is in the list. With nothing typed it offers the files you already have open.
+- **`Ctrl+Shift+F` — Search in files.** Every text file in the folder is read and searched, so a
+  match in a file you have never opened still shows up; files you *do* have open are searched as
+  they are in the editor, unsaved changes included. Results are grouped by file with the matching
+  line beside its line number — click one to land on it, with the match selected. **Aa** makes the
+  search case-sensitive and **.\*** treats what you typed as a regular expression (a broken pattern
+  says so instead of silently finding nothing). Anything selected in the editor is used as the
+  starting search term. Files over 1 MB are skipped, and the count says how many.
+- **The Explorer tree**, with Arrow keys to move, Right and Left to open and close folders, Enter
+  to open a file, `F2` to rename, `Delete` to delete, and `Shift+F10` (or the Menu key) for the
+  same menu a right-click gives.
+
+### Renaming, deleting and copying a path
+
+Right-click any file or folder in the Explorer:
+
+- **Rename…** turns the row into a name box, with the extension left out of the selection so
+  typing replaces `logo` and keeps `.png`. A file that is open follows its new name into its tab —
+  unsaved changes and all — and, because the name decides the language, `notes.txt` renamed to
+  `notes.md` is highlighted as Markdown from that moment on. A name already in use is refused.
+- **Delete** asks first, saying exactly what will go and from where, and closes the tabs of the
+  files that stop existing. In a real folder it deletes from your disk, which nothing here can undo.
+- **Copy Path** copies the path *inside* the folder you opened, such as `css/style.css`. There is
+  no full path to copy: a browser is never told where on your disk the folder you picked actually is.
+
+In a folder this browser cannot write to (Firefox, Safari, a zip, the sample project) a rename or
+a delete changes the editor's copy only, the status bar says **· not on your disk yet**, and
+**Save Folder** writes the result out.
+
+No browser can rename a folder on the disk outright, so a folder is copied under the new name and
+the old one deleted. That is instant for a website and slow for a folder full of libraries, so one
+with more than 200 files inside says so before it starts.
+
+### Pictures, fonts and other files that are not text
+
+Clicking a `.png`, `.jpg`, `.gif`, `.webp` or `.ico` opens it in an **image tab**: the picture on a
+grey checkerboard, so the see-through parts of a PNG read as see-through, scaled down to fit. Click
+it (or the button) to see it at its real size, with scroll bars if it is bigger than the tab.
+Underneath: how many pixels across, how large the file is and what kind of image it is.
+
+`.svg` opens in the editor instead, because an SVG is text and worth editing. Anything else binary —
+a font, an archive, a program — says so plainly and gives its size; it is still part of the folder,
+so the live preview serves it and Save Folder packs it up.
+
+### When something else changes your files
+
+You might have the same folder open in VS Code, or pull a change with git while the editor is
+open. Every three seconds Online SVS looks at the modification time of each file you have open,
+and only when that time has moved does it read the file to see what really changed:
+
+- **A tab you have not touched** quietly takes the new text, keeping your cursor, your scroll
+  position and your undo history, and a short notice says why the text changed.
+- **A tab with unsaved changes** is left exactly as it is, and a notification asks which version
+  should stay: **Keep mine** (your text stays, and `Ctrl+S` overwrites the disk) or **Load theirs**.
+  Nothing is thrown away until you answer.
+
+Your own `Ctrl+S` moves the modification time too, so the check compares the text as well and never
+reports your own save as somebody else's change. Only a real folder on the disk can change behind
+the editor's back, so the check does not run for a zip, the sample project or a read-only folder —
+and it pauses while the tab is in the background.
+
 ### Live Server
 
 1. Open a folder (or the sample project) and press **Go Live**. The preview panel opens on the right
@@ -134,6 +202,8 @@ The scratch file can be previewed too: pick the **HTML** language and press Go L
 1. Open a file, or write one in the scratch editor, and press **Run** or **Ctrl+Enter**.
 2. The **Output** tab shows what your program printed. Compiler messages and anything the
    program wrote to its error stream appear in red, followed by the exit code and how long it took.
+   Every position a compiler mentions — `main.cpp:3:5`, `File "main.py", line 7`, `(Main.java:5)` —
+   becomes a button that opens that file on that line, as long as it is a file you actually have.
 3. If your program reads input, type it in the **Input** tab first, one value per line. It is
    handed to the program the moment it starts, which is how OnlineGDB's non-interactive mode
    works: a program cannot ask you for more input while it is running.
@@ -170,6 +240,7 @@ Two things to know:
 
 - Monaco reports syntax errors for JavaScript, TypeScript, CSS and JSON, but not for HTML, so a
   broken HTML tag still refreshes the preview.
+- How long the preview waits after your last keystroke is a **Settings** choice (0.25 s to 3 s).
 - The preview runs on the same origin as the editor, so a script in the previewed page has the
   same access as the editor itself, including the folder you opened. That is why Go Live asks for
   confirmation the first time. Only preview code you trust; a "free template" downloaded from the
@@ -185,12 +256,16 @@ Two things to know:
 | Ctrl + Shift + S | Save all files — in the scratch file, Save As… |
 | Ctrl + B | Show / hide the sidebar |
 | Ctrl + J | Show / hide the bottom panel |
+| Ctrl + P | Go to file |
+| Ctrl + Shift + F | Search in files |
 | Ctrl + Shift + E | Explorer |
 | Ctrl + , | Settings |
 | Ctrl + scroll | Zoom the editor |
-| Arrow keys | Move through the Explorer tree (Right expands, Left collapses), switch editor tabs, resize a focused divider |
+| Arrow keys | Move through the Explorer tree (Right expands, Left collapses), the search results and the Go to file list, switch editor tabs, resize a focused divider |
 | Enter | Open the focused file |
-| Delete | Close the focused tab |
+| F2 | Rename the file or folder in the Explorer |
+| Delete | Delete the file in the Explorer · close the focused tab |
+| Shift + F10 | The Explorer's right-click menu |
 
 ## Run it locally
 
@@ -253,7 +328,12 @@ js/explorer.js        the file tree, new file / new folder
 js/scratch.js         scratch mode + localStorage
 js/settings.js        settings view; js/fonts.js lists the fonts you can pick
 js/layout.js          dividers, sidebar/panel/preview toggles
-js/panel.js           Output / Input / Problems panel
+js/panel.js           Output / Input / Problems panel, and the clickable positions in the output
+js/search.js          Search view: reads every file in the folder and lists the matches
+js/quickopen.js       Ctrl+P "Go to file", with its own fuzzy matching
+js/imageview.js       the image tab (checkerboard, fit or full size, pixel size)
+js/watch.js           notices when a file you have open is changed outside the editor
+js/contextmenu.js     the right-click menu, keyboard-operable
 js/live.js            live server: syncs files into the cache, error gating, reload messages, preview panel
 js/runner.js          Run button: talks to the Piston service and renders the output
 js/recent.js          remembers the last folder and its tabs; the "Reopen hello" bar
@@ -266,7 +346,7 @@ js/fs/index.js        one API for files; native.js = File System Access, memory.
 js/fs/handles.js      stores folder and file handles in IndexedDB so they survive a visit
 js/fs/zip.js          builds a .zip in the browser, no library (uncompressed entries)
 js/fs/unzip.js        reads a .zip back, stored and deflated, no library
-js/drop.js            drag a .zip onto the window to open it
+js/drop.js            drag a folder or a .zip onto the window to open it
 tests/                automated browser test (see below)
 ```
 
@@ -296,11 +376,24 @@ builds itself, since the app's own writer never makes one — including the fold
 the `__MACOSX` it leaves out, a zip inside a zip, and writing the edits back in the shape they
 arrived in.
 
-Three things the browser will not let a test drive: the folder picker, the Save dialog and
-dropping a file on the window, since all three need a real person — a drop a script stages is
-marked untrusted, and the app ignores those on purpose. The pickers are stood in for, and
-opening a folder or a zip without them goes through the debug hook (`window.SVS`, only present
-with `?debug`).
+The Phase 4 features are covered too: Go to file (including letters that are not next to each
+other), search across files that are not open, match-case and a broken regular expression,
+rename following a file into its tab with its unsaved changes, a refused duplicate name, delete
+with its confirmation, Copy Path read back off the clipboard, the right-click menu driven from
+the keyboard, the image tab reading a real PNG's size (built byte by byte in the test), the
+"not really an image" message, and the clickable positions in the Output tab — both for a file
+in the folder and for the scratch file, which the service is given a name of its own.
+
+The outside-change watcher is tested by handing the app a folder that answers the same calls a
+real one does, so the test can decide what its files say and when they changed: a clean tab
+updating by itself, a tab with unsaved changes asking first, both answers to that question, and
+a `Ctrl+S` of our own that must not be mistaken for someone else's edit.
+
+Four things the browser will not let a test drive: the folder picker, the Save dialog, dropping
+a folder or file on the window, and the real File System Access API, since all of them need a
+real person — a drop a script stages is marked untrusted, and the app ignores those on purpose.
+The pickers are stood in for, and opening a folder or a zip without them goes through the debug
+hook (`window.SVS`, only present with `?debug`).
 
 ```bash
 cd tests
@@ -319,5 +412,6 @@ npm test
   never sent anywhere, and the browser asks your permission again on every visit before it opens
   anything. **Forget** on the reopen bar deletes it.
 - While the live server runs, copies of your files sit in **your browser's** cache so the preview can load them. They are removed when you stop the server, close the folder or reload the app.
+- Searching, Go to file and the image tab all read your files inside the browser only. Copy Path uses your clipboard, and nothing else is written to it.
 - Pressing **Run** is the one exception: the file you are running, the helper files beside it and your Input text are sent to the Piston service so it can run them. The Output tab names every file that was sent. Data files and anything that looks like a secret are held back. Nothing is sent until you press Run.
 - There is no account, no tracking and no server-side storage of any kind.

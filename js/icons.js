@@ -36,6 +36,8 @@ export const icons = {
   externalLink: svg('<path d="M9 2.5h4.5V7"/><path d="M13.5 2.5 7 9"/><path d="M11.5 9v4.5h-9v-9H7"/>'),
   arrowLeft: svg('<path d="M13 8H3"/><path d="m7 4-4 4 4 4"/>'),
   arrowRight: svg('<path d="M3 8h10"/><path d="m9 4 4 4-4 4"/>'),
+  // A frame with a sun and hills in it: the picture of a picture.
+  image: svg('<rect x="1.5" y="2.5" width="13" height="11" rx="1"/><circle cx="5.5" cy="6.5" r="1.2"/><path d="m2 11.5 3.5-3 3 2.5 2.5-2.5 3 3"/>'),
   // A box with a lid and a label, the way a zip is drawn everywhere: the lid line keeps it
   // from reading as a plain folder at a glance.
   archive: svg('<rect x="1.5" y="2.5" width="13" height="3"/><path d="M2.5 5.5h11v8h-11z"/><path d="M6.5 8h3"/>'),

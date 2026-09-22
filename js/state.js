@@ -15,6 +15,7 @@ export const state = {
     tabSize: 4,
     wordWrap: false,
     minimap: true,
+    liveRefreshDelay: 750,
   },
   stdin: '',              // text of the Input tab (sent to programs in Phase 3)
   live: { status: 'off', errors: 0 },   // 'off' | 'on' | 'paused'

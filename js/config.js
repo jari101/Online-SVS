@@ -25,6 +25,13 @@ export const CONFIG = {
   scratchKey: 'svs.scratch',
   settingsKey: 'svs.settings',
 
-  // Milliseconds of typing silence before the live server refreshes (Phase 2).
+  // Milliseconds of typing silence before the live server refreshes. This is the starting
+  // value; Settings can change it, and the choice is kept in localStorage.
   liveRefreshDelay: 750,
+
+  // Delays you can pick in Settings for the live refresh.
+  liveRefreshChoices: [250, 500, 750, 1500, 3000],
+
+  // How often an open file is checked for changes made outside the editor (js/watch.js).
+  watchInterval: 3000,
 };

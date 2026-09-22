@@ -8,7 +8,6 @@
 //     just swaps the stylesheet). With errors, the status bar shows "paused" until they are fixed.
 //   - Stop: empty the cache and hide the preview.
 
-import { CONFIG } from './config.js';
 import { state, on, emit } from './state.js';
 import * as fs from './fs/index.js';
 import { mimeFor } from './fs/util.js';
@@ -17,7 +16,7 @@ import { errorCount, collectProblems } from './panel.js';
 import { togglePreview } from './layout.js';
 import { toast } from './toast.js';
 import { confirmDialog } from './dialog.js';
-import { $ } from './dom.js';
+import { $, mapLimit } from './dom.js';
 
 const CACHE_NAME = 'svs-live-v1';
 const CHANNEL_NAME = 'svs-live';
@@ -243,19 +242,6 @@ async function syncPath(cache, path) {
   await putFile(cache, path, body);
 }
 
-/**
- * Run `task` over every item with at most `limit` running at once. Reading a folder is one
- * round trip to the disk per file, so doing them strictly one after another makes Go Live
- * crawl on a big project.
- */
-async function mapLimit(items, limit, task) {
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) await task(items[next++]);
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-}
-
 async function fullSync() {
   await caches.delete(CACHE_NAME);
   synced.clear();
@@ -305,7 +291,7 @@ async function syncTree() {
 function onContentChanged(entry) {
   if (!isLive() && state.live.status !== 'starting') return;
   pending.add(entry.scratch ? 'index.html' : entry.path);
-  scheduleSync(CONFIG.liveRefreshDelay);
+  scheduleSync(state.settings.liveRefreshDelay);
 }
 
 /**

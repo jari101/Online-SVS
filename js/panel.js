@@ -1,8 +1,13 @@
-// js/panel.js — the bottom panel: Output (program output, Phase 3), Input (stdin, Phase 3)
+// js/panel.js — the bottom panel: Output (what your program printed), Input (what it reads)
 // and Problems (errors and warnings Monaco found in the open files).
+//
+// Output also turns the places a compiler mentions — "main.cpp:12:5", 'File "main.py", line 7',
+// "(Main.java:5)" — into buttons that jump to that line, but only when the file they name is
+// one we can actually open.
 
 import { state, on, emit } from './state.js';
-import { getMonaco, revealPosition } from './editor.js';
+import { getMonaco, revealPosition, gotoLocation, SCRATCH_PATH } from './editor.js';
+import * as fs from './fs/index.js';
 import { icons } from './icons.js';
 import { escapeHtml, $ } from './dom.js';
 import { togglePanel } from './layout.js';
@@ -71,9 +76,117 @@ export function clearOutput() {
 export function appendOutput(text, cls = '') {
   const span = document.createElement('span');
   if (cls) span.className = cls;
-  span.textContent = text;
+  span.append(linkify(text));
   outputEl.appendChild(span);
   outputEl.parentElement.scrollTop = outputEl.parentElement.scrollHeight;
+}
+
+/* ---------- Turning "main.cpp:12:5" into something you can click ---------- */
+
+/**
+ * What the last run called the file it sent, and which of our files that was. The service is
+ * given a name of its own choosing for the scratch file ("main.cpp" for C++), and that is the
+ * name the compiler then talks about, so without this the scratch file's own errors would not
+ * be clickable. Set by js/runner.js before each run.
+ */
+let runContext = null;
+
+export function setRunContext(context) {
+  runContext = context;
+}
+
+// Two shapes cover every compiler and runtime the Run button can reach: Python's own wording,
+// and "name:line" (optionally ":column"), which is what C, C++, Java, Node, Go and the rest
+// all print, with or without a folder in front of the name.
+const LOCATION_PATTERNS = [
+  /File "([^"\n]+)", line (\d+)/g,
+  /([A-Za-z0-9_+\-./\\]*[A-Za-z0-9_+\-]\.[A-Za-z][A-Za-z0-9]*):(\d+)(?::(\d+))?/g,
+];
+
+/** Every file in the open folder, as paths. */
+function treePaths(node, out = []) {
+  if (!node) return out;
+  if (node.kind === 'file') out.push(node.path);
+  else for (const child of node.children) treePaths(child, out);
+  return out;
+}
+
+/**
+ * Which of our files is the compiler talking about? The service runs the files under its own
+ * names in its own folder ("/box/main.cpp"), so an exact path is tried first and the plain
+ * file name after that. Returns null when nothing here matches, and the text stays text.
+ */
+function resolveFile(reference) {
+  const cleaned = reference.replace(/\\/g, '/').replace(/^\.\//, '');
+  const name = fs.baseName(cleaned);
+
+  if (runContext && (runContext.name === name || runContext.name === cleaned)) return runContext.path;
+
+  const scratch = state.openFiles.find((f) => f.scratch);
+  if (scratch && (scratch.name === name || scratch.name === cleaned)) return SCRATCH_PATH;
+
+  if (state.mode !== 'folder' || !state.tree) return null;
+  if (fs.findNode(state.tree, cleaned)?.kind === 'file') return cleaned;
+
+  const open = state.openFiles.find((f) => !f.scratch && f.name === name);
+  if (open) return open.path;
+
+  const candidates = treePaths(state.tree).filter((path) => fs.baseName(path) === name);
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+  // Several files share the name: the one beside the file you ran is the likely one.
+  const activeDir = state.activePath ? fs.parentOf(state.activePath) : '';
+  return candidates.find((path) => fs.parentOf(path) === activeDir) || candidates[0];
+}
+
+/** Find the file positions in `text` and hand back where they are, without overlaps. */
+function findLocations(text) {
+  const found = [];
+  for (const pattern of LOCATION_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      found.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        label: match[0],
+        reference: match[1],
+        line: Number(match[2]),
+        column: Number(match[3] || 1),
+      });
+    }
+  }
+  found.sort((a, b) => a.start - b.start);
+  return found.filter((item, index) => index === 0 || item.start >= found[index - 1].end);
+}
+
+function linkify(text) {
+  const fragment = document.createDocumentFragment();
+  // A stack trace names the same file over and over; look each one up once.
+  const seen = new Map();
+  const lookUp = (reference) => {
+    if (!seen.has(reference)) seen.set(reference, resolveFile(reference));
+    return seen.get(reference);
+  };
+
+  let at = 0;
+  for (const location of findLocations(text)) {
+    const path = lookUp(location.reference);
+    if (!path) continue;
+    fragment.append(text.slice(at, location.start));
+    const link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'out-link';
+    link.textContent = location.label;
+    link.title = `Go to ${path} line ${location.line}`;
+    link.addEventListener('click', () => {
+      gotoLocation(path, location.line, location.column).catch((err) => console.error(err));
+    });
+    fragment.append(link);
+    at = location.end;
+  }
+  fragment.append(text.slice(at));
+  return fragment;
 }
 
 /* ---------- Problems ---------- */

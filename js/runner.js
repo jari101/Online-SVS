@@ -12,8 +12,8 @@ import { baseName } from './fs/util.js';
 import {
   LANGUAGES, languageForPath, isRunnable, entryFileName, companionPaths, definesEntryPoint,
 } from './languages.js';
-import { openTextOf } from './editor.js';
-import { clearOutput, appendOutput, showPanelTab } from './panel.js';
+import { openTextOf, SCRATCH_PATH } from './editor.js';
+import { clearOutput, appendOutput, showPanelTab, setRunContext } from './panel.js';
 import { markLanguageAvailability } from './scratch.js';
 import { toast } from './toast.js';
 import { icons } from './icons.js';
@@ -167,7 +167,7 @@ async function collectRequest() {
     }
   }
 
-  return { lang, files, entryName, skipped, withheld };
+  return { lang, files, entryName, skipped, withheld, path: file.scratch ? SCRATCH_PATH : file.path };
 }
 
 /* ---------- Running ---------- */
@@ -194,7 +194,10 @@ export async function run() {
   }, REQUEST_TIMEOUT);
 
   try {
-    const { lang, files, entryName, skipped, withheld } = await collectRequest();
+    const { lang, files, entryName, skipped, withheld, path } = await collectRequest();
+    // So that a position in the compiler's output ("main.cpp:3:5") can point back at the file
+    // it really came from, whatever name the service was given for it.
+    setRunContext({ name: entryName, path });
     if (!runtimes) appendOutput('Looking up the code-running service…\n', 'muted');
 
     const available = await loadRuntimes(inFlight.signal);

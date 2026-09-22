@@ -1,13 +1,20 @@
 // js/explorer.js — the file tree in the sidebar: folders you can expand, files you can
-// click to open, and the "new file / new folder" inline inputs.
-// Keyboard: Up/Down move, Right expands, Left collapses (or goes to the parent), Enter opens.
+// click to open, the "new file / new folder" inline inputs, and the right-click menu
+// (Rename, Delete, Copy Path).
+// Keyboard: Up/Down move, Right expands, Left collapses (or goes to the parent), Enter opens,
+// F2 renames, Delete deletes, Shift+F10 (or the Menu key) opens the same menu as a right-click.
 
 import { state, on, emit } from './state.js';
 import * as fs from './fs/index.js';
-import { openFile } from './editor.js';
+import { openFile, retargetOpenFiles, closeFilesUnder, markNeedsExport } from './editor.js';
 import { icons, treeIcons, fileTypeClass } from './icons.js';
 import { escapeHtml, el } from './dom.js';
 import { toast } from './toast.js';
+import { confirmDialog } from './dialog.js';
+import { openContextMenu } from './contextmenu.js';
+
+/** Renaming a folder in a real folder on disk copies its files, so a big one asks first. */
+const LARGE_FOLDER = 200;
 
 const expanded = new Set(['']); // paths of folders that are open ('' is the root)
 let host = null;
@@ -15,6 +22,7 @@ let selectedPath = '';           // the last row you clicked
 let selectedDir = '';            // where a new file or folder will be created
 let focusedPath = null;          // the row that receives keyboard focus (roving tabindex)
 let creating = null;             // { kind: 'file' | 'dir', dir } while the inline input is shown
+let renaming = null;             // { path, name } while a row has been turned into a name box
 let openZip = null;              // main.js hands us the function that opens a .zip as a project
 
 export function initExplorer(container, { openZip: open } = {}) {
@@ -47,6 +55,7 @@ export async function refreshTree() {
 /** Show an inline input to create a file or folder inside the selected folder. */
 export function startCreate(kind) {
   if (!fs.hasFolder() || !state.tree) return;
+  renaming = null;
   creating = { kind, dir: selectedDir };
   expanded.add(selectedDir);
   render();
@@ -66,6 +75,22 @@ export function resetExplorer() {
   selectedDir = '';
   focusedPath = null;
   creating = null;
+  renaming = null;
+}
+
+/** Turn a row into a name box, filled in with the name it has now. */
+export function startRename(path) {
+  if (!path || !fs.hasFolder() || !state.tree) return;
+  if (!fs.findNode(state.tree, path)) return;
+  creating = null;
+  renaming = { path, name: fs.baseName(path) };
+  render();
+  const input = host.querySelector('.tree-input');
+  if (!input) return;
+  input.focus();
+  // Select the name but not the extension, so typing replaces "logo" and keeps ".png".
+  const dot = input.value.lastIndexOf('.');
+  input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
 }
 
 /* ---------- Rendering ---------- */
@@ -176,6 +201,7 @@ function renderTree() {
 
   tree.addEventListener('click', onRowClick);
   tree.addEventListener('keydown', onTreeKeydown);
+  tree.addEventListener('contextmenu', onContextMenu);
   return tree;
 }
 
@@ -188,6 +214,7 @@ function renderChildren(dirNode, depth, fragment) {
 }
 
 function renderRow(node, depth) {
+  if (renaming && renaming.path === node.path) return renderRenameRow(node, depth);
   const row = el('div', 'tree-row');
   row.dataset.path = node.path;
   row.dataset.kind = node.kind;
@@ -281,6 +308,221 @@ function renderInputRow(depth) {
   return row;
 }
 
+
+/* ---------- Renaming, deleting, copying a path ---------- */
+
+function renderRenameRow(node, depth) {
+  const row = el('div', 'tree-row');
+  row.setAttribute('role', 'none');
+  row.style.paddingInlineStart = `${8 + depth * 12}px`;
+  const isDir = node.kind === 'dir';
+  const icon = isDir ? (expanded.has(node.path) ? icons.folderOpen : icons.folder) : icons.file;
+  const colour = isDir ? 'ft-folder' : fileTypeClass(node.name);
+  row.innerHTML = `
+    <span class="tree-chevron"></span>
+    <span class="tree-icon ${colour}">${icon}</span>`;
+
+  const input = el('input', 'tree-input');
+  input.type = 'text';
+  input.spellcheck = false;
+  input.value = renaming.name;
+  input.setAttribute('aria-label', `New name for ${node.name}`);
+
+  let finished = false;
+  const finish = (commit) => {
+    if (finished) return;
+    finished = true;
+    const name = input.value.trim();
+    const target = renaming;
+    renaming = null;
+    if (!commit || !name || name === target.name) {
+      render();
+      focusPath(target.path);
+      return;
+    }
+    commitRename(target.path, name);
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener('blur', () => finish(input.value.trim() !== ''));
+  row.appendChild(input);
+  return row;
+}
+
+/** Folders that were open keep their arrows open under the new name. */
+function remapExpanded(oldPath, newPath) {
+  for (const path of [...expanded]) {
+    if (path !== oldPath && !path.startsWith(oldPath + '/')) continue;
+    expanded.delete(path);
+    expanded.add(newPath + path.slice(oldPath.length));
+  }
+}
+
+async function commitRename(path, name) {
+  const node = fs.findNode(state.tree, path);
+  const problem = fs.validateName(name);
+  if (problem) {
+    toast(problem, 'error');
+    render();
+    return;
+  }
+
+  const backend = fs.current();
+  const target = fs.join(fs.parentOf(path), name);
+  if (await fs.exists(target)) {
+    toast(`"${name}" already exists in that folder, so nothing was renamed.`, 'error');
+    render();
+    return;
+  }
+
+  // No browser can rename a folder on the disk outright: it has to be copied under the new
+  // name and the old one deleted. That is quick for a website and slow for a folder full of
+  // libraries, so a big one says so before it starts.
+  if (node?.kind === 'dir' && backend.kind === 'native') {
+    const count = await backend.countFiles(path, LARGE_FOLDER + 1).catch(() => 0);
+    if (count > LARGE_FOLDER) {
+      const go = await confirmDialog({
+        title: `Rename "${node.name}" to "${name}"?`,
+        message: `Your browser cannot rename a folder directly, so all ${count}+ files inside it `
+          + 'have to be copied under the new name and the originals then deleted. That can take a while.',
+        confirmLabel: 'Rename anyway',
+        cancelLabel: 'Cancel',
+      });
+      if (!go) {
+        render();
+        return;
+      }
+    }
+  }
+
+  try {
+    const newPath = await fs.rename(path, name);
+    retargetOpenFiles(path, newPath);
+    remapExpanded(path, newPath);
+    if (selectedDir === path || selectedDir.startsWith(path + '/')) selectedDir = newPath + selectedDir.slice(path.length);
+    selectedPath = newPath;
+    await refreshTree();
+    focusPath(newPath);
+
+    if (backend.kind === 'native') {
+      toast(`Renamed to "${name}".`, 'success', 2000);
+    } else {
+      markNeedsExport();
+      toast(`Renamed to "${name}" in the editor's copy of "${backend.name}". Save Folder writes it out.`, 'info', 4500);
+    }
+  } catch (err) {
+    console.error(err);
+    toast(`Unable to rename "${fs.baseName(path)}": ${err.message}`, 'error');
+    render();
+  }
+}
+
+function countFiles(node) {
+  if (node.kind === 'file') return 1;
+  return node.children.reduce((total, child) => total + countFiles(child), 0);
+}
+
+async function requestDelete(path) {
+  const node = fs.findNode(state.tree, path);
+  if (!node) return;
+  const backend = fs.current();
+  const isDir = node.kind === 'dir';
+  const inside = isDir ? countFiles(node) : 0;
+  const what = isDir
+    ? `"${node.name}" and the ${inside} file${inside === 1 ? '' : 's'} inside it`
+    : `"${node.name}"`;
+
+  const message = backend.kind === 'native'
+    ? `${what} will be deleted from "${backend.name}" on your disk. This cannot be undone here — `
+      + 'only your own recycle bin or a backup can bring it back.'
+    : `${what} will be removed from the editor's copy of "${backend.name}". `
+      + (backend.zip
+        ? `The zip on your disk keeps it until you use Save Folder.`
+        : 'The folder on your disk is not touched — this browser cannot write to it.');
+
+  const go = await confirmDialog({
+    title: `Delete ${isDir ? 'folder' : 'file'} "${node.name}"?`,
+    message,
+    confirmLabel: isDir ? 'Delete folder' : 'Delete file',
+    cancelLabel: 'Keep it',
+    danger: true,
+  });
+  if (!go) return;
+
+  try {
+    // Delete first, close the tabs second: if the delete fails, unsaved work is still open
+    // in a tab rather than thrown away for a file that is still on the disk.
+    await fs.remove(path);
+    closeFilesUnder(path);
+    const parent = fs.parentOf(path);
+    selectedPath = parent;
+    selectedDir = parent;
+    await refreshTree();
+    focusPath(parent);
+    if (backend.kind === 'native') {
+      toast(`Deleted "${node.name}".`, 'success', 2500);
+    } else {
+      markNeedsExport();
+      toast(`Deleted "${node.name}" from the editor's copy of "${backend.name}". Save Folder writes it out.`, 'info', 4500);
+    }
+  } catch (err) {
+    console.error(err);
+    toast(`Unable to delete "${node.name}": ${err.message}`, 'error');
+    await refreshTree();
+  }
+}
+
+/**
+ * Put a file's path on the clipboard. It is the path *inside* the folder you opened
+ * ("css/style.css"): a browser is never told where that folder sits on your disk, so there is
+ * no full path to copy.
+ */
+async function copyPath(path) {
+  const done = () => toast(`Copied "${path}" — the path inside "${state.folder.name}".`, 'success', 2500);
+  try {
+    await navigator.clipboard.writeText(path);
+    done();
+    return;
+  } catch {
+    /* no clipboard permission, or an older browser: fall back to the old copy trick */
+  }
+  const area = el('textarea', 'sr-only');
+  area.value = path;
+  document.body.appendChild(area);
+  area.select();
+  const copied = document.execCommand('copy');
+  area.remove();
+  if (copied) done();
+  else toast(`This browser would not let the page copy to the clipboard. The path is: ${path}`, 'warning', 6000);
+}
+
+function openRowMenu(path, kind, x, y) {
+  selectedPath = path;
+  focusedPath = path;
+  selectedDir = kind === 'dir' ? path : fs.parentOf(path);
+  updateActiveRow();
+  const row = host.querySelector(`.tree-row[data-path="${CSS.escape(path)}"]`);
+  openContextMenu({
+    x,
+    y,
+    returnFocusTo: row,
+    items: [
+      { label: 'Rename…', hint: 'F2', onClick: () => startRename(path) },
+      { label: 'Delete', hint: 'Del', danger: true, onClick: () => requestDelete(path) },
+      { separator: true },
+      { label: 'Copy Path', onClick: () => copyPath(path) },
+    ],
+  });
+}
+
 /* ---------- Interaction ---------- */
 
 async function activateRow(row) {
@@ -323,6 +565,25 @@ function onRowClick(e) {
 
 function visibleRows() {
   return [...host.querySelectorAll('.tree-row[data-path]')];
+}
+
+/** Move the keyboard focus to one path, if a row for it is on screen. */
+function focusPath(path) {
+  focusedPath = path;
+  const rows = visibleRows();
+  for (const row of rows) row.tabIndex = row.dataset.path === path ? 0 : -1;
+  host.querySelector(`.tree-row[data-path="${CSS.escape(path)}"]`)?.focus();
+}
+
+function onContextMenu(e) {
+  // Only a real right-click opens the menu. A previewed page shares this origin and can
+  // already reach the folder directly, so this is consistency with the rest of the app
+  // rather than a wall — but Rename and Delete should not be one forged event away.
+  if (!e.isTrusted) return;
+  const row = e.target.closest('.tree-row[data-path]');
+  if (!row) return; // empty space below the tree: leave the browser's own menu alone
+  e.preventDefault();
+  openRowMenu(row.dataset.path, row.dataset.kind, e.clientX, e.clientY);
 }
 
 function focusRowAt(rows, index) {
@@ -376,6 +637,28 @@ function onTreeKeydown(e) {
     case ' ':
       e.preventDefault();
       activateRow(current);
+      break;
+    case 'F2':
+      if (!e.isTrusted) break; // as in onContextMenu: a real key press, not a staged one
+      e.preventDefault();
+      startRename(path);
+      break;
+    case 'Delete':
+      if (!e.isTrusted) break;
+      e.preventDefault();
+      requestDelete(path);
+      break;
+    case 'ContextMenu': {
+      e.preventDefault();
+      // Open it at the row itself, since there is no pointer to open it at.
+      const box = current.getBoundingClientRect();
+      openRowMenu(path, kind, box.left + 16, box.bottom);
+      break;
+    }
+    case 'F10':
+      if (!e.shiftKey) break;
+      e.preventDefault();
+      openRowMenu(path, kind, current.getBoundingClientRect().left + 16, current.getBoundingClientRect().bottom);
       break;
     default:
       break;

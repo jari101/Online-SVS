@@ -37,3 +37,24 @@ export function downloadBlob(name, blob) {
 export function downloadText(name, text) {
   downloadBlob(name, new Blob([text], { type: 'text/plain;charset=utf-8' }));
 }
+
+/**
+ * Run `task` over every item with at most `limit` running at once. Reading files is one round
+ * trip to the disk each, so doing them strictly one after another makes a big folder crawl —
+ * and doing all of them at once floods the browser. Used by the live server and by Search.
+ */
+export async function mapLimit(items, limit, task) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await task(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+/** "84 KB", "1.2 MB" — a size a person can read, for image and binary files. */
+export function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}

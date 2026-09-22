@@ -35,6 +35,15 @@ export function fromHandle(root) {
     return dir.getFileHandle(baseName(path), { create });
   }
 
+  /** The handle of a path, whether it is a file or a folder. */
+  async function anyHandle(path) {
+    try {
+      return await fileHandle(path);
+    } catch {
+      return dirHandle(path);
+    }
+  }
+
   return {
     kind: 'native',
     name: root.name,
@@ -54,9 +63,10 @@ export function fromHandle(root) {
       return file.arrayBuffer();
     },
 
-    async lastModified(path) {
+    /** Size and modification time of one file. The watcher and the image tab both use it. */
+    async stat(path) {
       const file = await (await fileHandle(path)).getFile();
-      return file.lastModified;
+      return { size: file.size, lastModified: file.lastModified };
     },
 
     /**
@@ -97,7 +107,74 @@ export function fromHandle(root) {
       const parent = await dirHandle(parentOf(path));
       await parent.removeEntry(baseName(path), { recursive: true });
     },
+
+    /**
+     * Give a file or folder a new name, in the folder it already sits in.
+     *
+     * A file is renamed with `handle.move()` where the browser has it (Chrome and Edge do):
+     * the file keeps its contents and never leaves the disk. Everywhere else, and for every
+     * folder — no browser has move() for folders yet — it is copied under the new name and
+     * the old one is then deleted, which is why renaming a big folder takes a moment.
+     */
+    async rename(path, newName) {
+      const parentPath = parentOf(path);
+      const target = join(parentPath, newName);
+      if (target === path) return path;
+
+      const parent = await dirHandle(parentPath);
+      if (await entryExists(parent, newName)) throw new Error(`"${newName}" already exists.`);
+
+      const handle = await anyHandle(path);
+      if (handle.kind === 'file' && typeof handle.move === 'function') {
+        await handle.move(newName);
+        return target;
+      }
+      if (handle.kind === 'file') {
+        await copyFile(handle, parent, newName);
+      } else {
+        try {
+          await copyTree(handle, parent, newName);
+        } catch (err) {
+          // Leave no half-copied folder behind for the user to clean up by hand.
+          await parent.removeEntry(newName, { recursive: true }).catch(() => {});
+          throw err;
+        }
+      }
+      await parent.removeEntry(baseName(path), { recursive: true });
+      return target;
+    },
+
+    /** How many files are inside a folder, counting up to `limit`. Renaming asks first when it is a lot. */
+    countFiles(path, limit) {
+      return dirHandle(path).then((dir) => countFilesIn(dir, limit));
+    },
   };
+}
+
+async function copyFile(handle, destDir, name) {
+  const file = await handle.getFile();
+  const copy = await destDir.getFileHandle(name, { create: true });
+  const writable = await copy.createWritable();
+  await writable.write(await file.arrayBuffer());
+  await writable.close();
+}
+
+/** Copy a whole folder, including the names the explorer hides: a rename must lose nothing. */
+async function copyTree(srcDir, destParent, name) {
+  const dest = await destParent.getDirectoryHandle(name, { create: true });
+  for await (const [childName, handle] of srcDir.entries()) {
+    if (handle.kind === 'directory') await copyTree(handle, dest, childName);
+    else await copyFile(handle, dest, childName);
+  }
+}
+
+async function countFilesIn(dir, limit) {
+  let count = 0;
+  for await (const [, handle] of dir.entries()) {
+    count += handle.kind === 'directory' ? await countFilesIn(handle, limit - count) : 1;
+    if (count >= limit) return count;
+  }
+  return count;
 }
 
 /** getFileHandle/getDirectoryHandle with {create:true} silently return an existing entry, so check first. */

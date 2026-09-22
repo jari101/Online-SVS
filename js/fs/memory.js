@@ -70,8 +70,17 @@ export function fromFiles(name, files, { readOnly = false, sample = false, dirs:
       return data;
     },
 
-    async lastModified() {
-      return 0;
+    /**
+     * Size and modification time. Files that came from the disk through an <input> still carry
+     * their own time; text written here has none, so it reports 0 and the watcher leaves it
+     * alone — there is no disk behind this folder for anything else to change.
+     */
+    async stat(path) {
+      const { data } = get(path);
+      if (data instanceof File) return { size: data.size, lastModified: data.lastModified };
+      if (data instanceof Blob) return { size: data.size, lastModified: 0 };
+      if (typeof data === 'string') return { size: new TextEncoder().encode(data).length, lastModified: 0 };
+      return { size: data.byteLength ?? 0, lastModified: 0 };
     },
 
     async writeText(path, text) {
@@ -104,6 +113,34 @@ export function fromFiles(name, files, { readOnly = false, sample = false, dirs:
       dirs.delete(path);
       for (const key of [...entries.keys()]) if (key.startsWith(path + '/')) entries.delete(key);
       for (const d of [...dirs]) if (d.startsWith(path + '/')) dirs.delete(d);
+    },
+
+    /** Rename a file or folder. A folder takes everything inside it along, by re-keying the paths. */
+    async rename(path, newName) {
+      const target = join(parentOf(path), newName);
+      if (target === path) return path;
+      if (entries.has(target) || dirs.has(target)) throw new Error(`"${newName}" already exists.`);
+
+      const moveKey = (key) => (key === path ? target : target + key.slice(path.length));
+      const isInside = (key) => key === path || key.startsWith(path + '/');
+
+      for (const key of [...entries.keys()]) {
+        if (!isInside(key)) continue;
+        entries.set(moveKey(key), entries.get(key));
+        entries.delete(key);
+      }
+      for (const key of [...dirs]) {
+        if (!key || !isInside(key)) continue;
+        dirs.add(moveKey(key));
+        dirs.delete(key);
+      }
+      addAncestors(target);
+      return target;
+    },
+
+    /** Everything is already in memory, so renaming a folder here copies nothing. */
+    async countFiles() {
+      return 0;
     },
 
     /** Every file path (used by the live server in Phase 2). */

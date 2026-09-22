@@ -7,7 +7,7 @@ import { unzip } from './unzip.js';
 import { isIgnoredPath } from './util.js';
 import { SAMPLE_FILES, SAMPLE_NAME } from './sample.js';
 
-export { isBinaryPath, findNode, parentOf, baseName, join, validateName } from './util.js';
+export { isBinaryPath, isImagePath, findNode, parentOf, baseName, join, validateName, extOf, mimeFor } from './util.js';
 export { isZipPath } from './unzip.js';
 
 let backend = null;
@@ -164,6 +164,53 @@ export function fileHandleFor(path) {
   return need().fileHandleFor?.(path) || null;
 }
 
+/* ---------- Opening a folder that was dragged onto the window ---------- */
+
+/** How many files a dropped folder may hold. Past this it is almost certainly a mistake. */
+const MAX_DROPPED_FILES = 4000;
+
+/**
+ * Read a folder that was dropped on the window in a browser without the File System Access
+ * API (Firefox, Safari). All it gives out is the old `webkitGetAsEntry` interface, which can
+ * be walked but not written to, so the folder opens read-only — the same as Open Folder there.
+ */
+export async function folderFromDirectoryEntry(entry) {
+  const files = new Map();
+  await readDirectoryEntry(entry, '', files);
+  if (!files.size) throw new Error(`"${entry.name}" holds nothing this app can open.`);
+  return memory.fromFiles(entry.name, files, { readOnly: true });
+}
+
+/** Turn readEntries' callbacks into something `await` understands. */
+function readEntries(reader) {
+  return new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+}
+
+function fileOf(fileEntry) {
+  return new Promise((resolve, reject) => fileEntry.file(resolve, reject));
+}
+
+async function readDirectoryEntry(dirEntry, prefix, files) {
+  const reader = dirEntry.createReader();
+  // readEntries hands out children a batch at a time; an empty batch means that was the lot.
+  for (;;) {
+    const batch = await readEntries(reader);
+    if (!batch.length) return;
+    for (const child of batch) {
+      const path = prefix ? `${prefix}/${child.name}` : child.name;
+      if (isIgnoredPath(path)) continue;
+      if (child.isDirectory) {
+        await readDirectoryEntry(child, path, files);
+      } else {
+        if (files.size >= MAX_DROPPED_FILES) {
+          throw new Error(`That folder holds more than ${MAX_DROPPED_FILES} files, which is too many to read this way.`);
+        }
+        files.set(path, await fileOf(child));
+      }
+    }
+  }
+}
+
 /** A fresh copy of the built-in sample website. */
 export function sampleFolder() {
   return memory.fromFiles(SAMPLE_NAME, SAMPLE_FILES, { readOnly: false, sample: true });
@@ -182,6 +229,9 @@ export const createFile = (dir, name) => need().createFile(dir, name);
 export const createDir = (dir, name) => need().createDir(dir, name);
 export const exists = (path) => need().exists(path);
 export const remove = (path) => need().remove(path);
+export const rename = (path, newName) => need().rename(path, newName);
+export const stat = (path) => need().stat(path);
+export const countFiles = (path, limit) => need().countFiles(path, limit);
 
 /**
  * Everything in the open folder, ready to be packed into a zip: the bytes of every file and

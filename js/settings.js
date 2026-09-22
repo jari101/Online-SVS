@@ -7,7 +7,14 @@ import { state, emit } from './state.js';
 import { updateEditorOptions, applyModelOptionsToAll, getMonaco } from './editor.js';
 import { escapeHtml, clamp } from './dom.js';
 
-const DEFAULTS = { fontFamily: 'default', fontSize: 14, tabSize: 4, wordWrap: false, minimap: true };
+const DEFAULTS = {
+  fontFamily: 'default',
+  fontSize: 14,
+  tabSize: 4,
+  wordWrap: false,
+  minimap: true,
+  liveRefreshDelay: CONFIG.liveRefreshDelay,
+};
 
 
 export function loadSettings() {
@@ -24,6 +31,11 @@ export function loadSettings() {
   state.settings.tabSize = [2, 4, 8].includes(Number(state.settings.tabSize)) ? Number(state.settings.tabSize) : 4;
   state.settings.wordWrap = Boolean(state.settings.wordWrap);
   state.settings.minimap = Boolean(state.settings.minimap);
+  if (!CONFIG.liveRefreshChoices.includes(Number(state.settings.liveRefreshDelay))) {
+    state.settings.liveRefreshDelay = CONFIG.liveRefreshDelay;
+  } else {
+    state.settings.liveRefreshDelay = Number(state.settings.liveRefreshDelay);
+  }
 }
 
 function saveSettings() {
@@ -66,6 +78,11 @@ export function renderSettings(container) {
   const tabOptions = [2, 4, 8].map(
     (n) => `<option value="${n}" ${n === s.tabSize ? 'selected' : ''}>${n} spaces</option>`,
   ).join('');
+  const delayLabel = (ms) => (ms < 1000 ? `${ms} ms` : `${ms / 1000} seconds`);
+  const delayOptions = CONFIG.liveRefreshChoices.map(
+    (ms) => `<option value="${ms}" ${ms === s.liveRefreshDelay ? 'selected' : ''}>`
+      + `${delayLabel(ms)}${ms === CONFIG.liveRefreshDelay ? ' (default)' : ''}</option>`,
+  ).join('');
 
   container.innerHTML = `
     <div class="sidebar-title">Settings</div>
@@ -92,6 +109,11 @@ export function renderSettings(container) {
         <input id="setting-minimap" name="minimap" type="checkbox" ${s.minimap ? 'checked' : ''}>
         <label for="setting-minimap">Show minimap</label>
       </div>
+      <div class="setting">
+        <label for="setting-live-delay">Live refresh delay</label>
+        <select id="setting-live-delay" name="liveRefreshDelay">${delayOptions}</select>
+        <span class="hint">How long the live preview waits after your last keystroke. A short delay feels instant; a long one is kinder to a big page.</span>
+      </div>
       <p class="settings-note">Settings and the scratch file are kept in this browser only (localStorage). Nothing is sent to a server.</p>
     </form>`;
 
@@ -103,7 +125,7 @@ export function renderSettings(container) {
     if (!key) return;
     let value;
     if (input.type === 'checkbox') value = input.checked;
-    else if (key === 'fontSize' || key === 'tabSize') value = Number(input.value);
+    else if (key === 'fontSize' || key === 'tabSize' || key === 'liveRefreshDelay') value = Number(input.value);
     else value = input.value;
     if (key === 'fontSize') {
       value = clamp(value || 14, 8, 32);

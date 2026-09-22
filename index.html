@@ -26,7 +26,7 @@
       <h1 class="app-name">Online SVS</h1>
 
       <div class="menu" id="open-menu">
-        <button id="btn-open-folder" class="btn btn-secondary" title="Open a folder from your computer (or drop a .zip anywhere on the page)" disabled>Open Folder</button>
+        <button id="btn-open-folder" class="btn btn-secondary" title="Open a folder from your computer (or drop a folder or .zip anywhere on the page)" disabled>Open Folder</button>
         <button id="btn-open-menu" class="btn btn-secondary btn-caret" aria-label="More file and folder options" aria-haspopup="menu" aria-expanded="false" aria-controls="open-menu-list" data-icon="chevronDown"></button>
         <ul class="menu-list" id="open-menu-list" role="menu" hidden>
           <li role="none"><button role="menuitem" data-command="open-folder">Open Folder…</button></li>
@@ -50,7 +50,7 @@
     <div class="titlebar-center" id="titlebar-title">Online SVS</div>
 
     <div class="titlebar-right">
-      <button id="btn-run" class="btn btn-run" aria-disabled="true" title="Run the current file (arrives in Phase 3)">
+      <button id="btn-run" class="btn btn-run" aria-disabled="true" title="Run the current file (the editor is still loading)">
         <span class="btn-run-icon" data-icon="play" aria-hidden="true"></span><span class="btn-run-label">Run</span>
       </button>
       <button id="btn-live" class="btn btn-live" aria-pressed="false" title="Start the live server and preview your website" disabled>
@@ -77,13 +77,14 @@
 
     <nav id="activitybar" aria-label="Activity bar">
       <button class="activity active" data-view="explorer" title="Explorer (Ctrl+Shift+E)" aria-label="Explorer" data-icon="files"></button>
-      <button class="activity" data-view="search" title="Search (arrives in Phase 4)" aria-label="Search (arrives in Phase 4)" data-icon="search" disabled></button>
+      <button class="activity" data-view="search" id="activity-search" title="Search (the editor is still loading)" aria-label="Search (the editor is still loading)" data-icon="search" disabled></button>
       <div class="activity-spacer"></div>
       <button class="activity" data-view="settings" id="activity-settings" title="Settings (Ctrl+,)" aria-label="Settings" data-icon="gear"></button>
     </nav>
 
     <aside id="sidebar" aria-label="Sidebar">
       <section id="view-explorer" class="sidebar-view" aria-label="Explorer"></section>
+      <section id="view-search" class="sidebar-view" aria-label="Search" hidden></section>
       <section id="view-settings" class="sidebar-view" aria-label="Settings" hidden></section>
     </aside>
 
@@ -166,12 +167,12 @@
   </footer>
 </div>
 
-<!-- Shown while a file is dragged over the page, so a drop is never a surprise. -->
+<!-- Shown while something is dragged over the page, so a drop is never a surprise. -->
 <div id="drop-overlay" class="drop-overlay" hidden>
   <div class="drop-card">
-    <span class="drop-icon" data-icon="archive" aria-hidden="true"></span>
-    <p class="drop-title">Drop a .zip to open it</p>
-    <p class="drop-note">Its files open like a folder, and Save Folder packs them back into the zip.</p>
+    <span class="drop-icon" data-icon="folderOpen" aria-hidden="true"></span>
+    <p class="drop-title">Drop a folder or a .zip to open it</p>
+    <p class="drop-note">A folder opens in the Explorer; a zip is unpacked into one, and Save Folder packs it back. Nothing is uploaded.</p>
   </div>
 </div>
 

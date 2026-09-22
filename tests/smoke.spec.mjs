@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { deflateRawSync } from 'node:zlib';
+import { deflateRawSync, deflateSync } from 'node:zlib';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -42,6 +42,10 @@ async function waitForServer() {
 /* ---------- tiny test runner ---------- */
 const results = [];
 let currentStep = 'startup';
+// Set once the page exists: a step that fails halfway can leave a modal dialog or a
+// right-click menu open, and everything behind a modal dialog is inert — so one broken
+// assertion would otherwise be reported as twenty broken features.
+let afterEachStep = null;
 const startedAt = Date.now();
 const elapsed = () => `${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
 async function step(name, fn) {
@@ -54,6 +58,11 @@ async function step(name, fn) {
     results.push({ name, ok: false, err });
     console.log(`  ✗ ${name} (${elapsed()})\n    ${err.message}`);
   }
+  if (afterEachStep) {
+    try {
+      await afterEachStep();
+    } catch { /* the page may be gone; the step's own result is what matters */ }
+  }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -63,19 +72,51 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * own writer only stores, so a zip made here is the only way the test can prove that reading
  * a genuinely compressed zip works. Written by hand for the same reason as readZip below.
  */
-function makeZip(entries) {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let v = i;
-    for (let bit = 0; bit < 8; bit++) v = v & 1 ? 0xedb88320 ^ (v >>> 1) : v >>> 1;
-    table[i] = v >>> 0;
-  }
-  const crc32 = (bytes) => {
-    let crc = 0xffffffff;
-    for (const byte of bytes) crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-    return (crc ^ 0xffffffff) >>> 0;
-  };
+const crcTable = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let v = i;
+  for (let bit = 0; bit < 8; bit++) v = v & 1 ? 0xedb88320 ^ (v >>> 1) : v >>> 1;
+  crcTable[i] = v >>> 0;
+}
+/** The checksum both a zip entry and a PNG chunk are stamped with. */
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
 
+function pngChunk(type, data) {
+  const out = Buffer.alloc(8 + data.length + 4);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, 'ascii');
+  data.copy(out, 8);
+  out.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type, 'ascii'), data])), 8 + data.length);
+  return out;
+}
+
+/**
+ * A real PNG, built by hand, so the image tab has something a browser will genuinely decode
+ * and report the size of. A made-up file with a PNG signature would only prove the error path.
+ */
+function makePng(width, height) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;  // eight bits per channel
+  header[9] = 2;  // truecolour (red, green, blue)
+  const rows = Array.from({ length: height }, () => (
+    // Each row starts with its filter byte, then three bytes per pixel.
+    Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, 0x40)])
+  ));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(Buffer.concat(rows))),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+function makeZip(entries) {
   const body = [];
   const directory = [];
   let offset = 0;
@@ -154,7 +195,11 @@ const pageErrors = [];
 try {
   await waitForServer();
   browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    // Copy Path writes to the clipboard, and the test reads it back to check what landed there.
+    permissions: ['clipboard-read', 'clipboard-write'],
+  });
 
   // A stand-in for the Piston code-running service. The sandbox has no internet access, and
   // even with it we would not want the tests hitting a public service. `pistonMode` lets each
@@ -229,6 +274,24 @@ try {
   const previewFrame = () => page.frames().find((f) => f.url().includes('/live/'));
   // Never hand Playwright handles to assert(): on failure it would try to print their whole object graph.
   const exists = async (selector) => (await page.$(selector)) !== null;
+
+  // Close anything left hanging over the page after each step (see afterEachStep above).
+  afterEachStep = async () => {
+    if (await page.$('.context-menu:not([hidden])')) await page.keyboard.press('Escape');
+    await page.evaluate(() => {
+      for (const box of document.querySelectorAll('dialog[open]')) box.close();
+      // Sticky notifications (errors, and questions with buttons) would otherwise still be on
+      // screen when the next step looks at what it has been told.
+      for (const close of document.querySelectorAll('.toast .toast-close')) close.click();
+    });
+  };
+
+  /**
+   * Show the Explorer. Clicking its icon in the activity bar is not the same thing: when the
+   * Explorer is already the view on show, that click folds the sidebar away, exactly as in
+   * VS Code — which then hides the very tree the next line wants to click.
+   */
+  const showExplorer = () => page.evaluate(() => window.SVS.runCommand('explorer'));
 
   console.log('Online SVS smoke test');
 
@@ -351,6 +414,200 @@ try {
     const after = await activeTabName();
     assert.notEqual(before, after);
     assert.ok(await page.evaluate(() => document.activeElement.classList.contains('tab')), 'focus stays on a tab');
+  });
+
+  await step('Ctrl+P finds a file by part of its name and opens it', async () => {
+    await page.keyboard.press('Control+p');
+    await page.waitForSelector('dialog.quick-open[open]');
+    await page.fill('.quick-input', 'sty');
+    await page.waitForFunction(
+      () => document.querySelector('.quick-item.selected .quick-name')?.textContent === 'style.css',
+    );
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.tab.active:has-text("style.css")');
+    assert.equal(await page.evaluate(() => document.querySelector('dialog.quick-open').open), false);
+  });
+
+  await step('Ctrl+P matches letters that are not next to each other, and Escape closes it', async () => {
+    await page.keyboard.press('Control+p');
+    await page.waitForSelector('dialog.quick-open[open]');
+    await page.fill('.quick-input', 'cst'); // c-s-t, spread across "css/style.css"
+    await page.waitForFunction(
+      () => document.querySelector('.quick-item.selected .quick-name')?.textContent === 'style.css',
+    );
+    // c and s are in "css", t is in "style.css": every letter that matched is marked.
+    assert.equal(await page.locator('.quick-item.selected .quick-dir mark').count(), 2);
+    assert.equal(await page.locator('.quick-item.selected .quick-name mark').count(), 1);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('dialog.quick-open').open);
+    // Closed has to mean gone from the screen, not merely "not open": a stray `display` rule
+    // would beat the browser's own and leave the palette hanging over the editor.
+    assert.equal(await page.locator('dialog.quick-open').isVisible(), false, 'the palette must disappear');
+  });
+
+  await step('Search finds text in a file that is not open, and a result jumps to its line', async () => {
+    // app.js has never been opened in this run, so a match in it can only come from the disk.
+    assert.equal(await page.locator('.tab:has-text("app.js")').count(), 0, 'app.js must not be open yet');
+    await page.keyboard.press('Control+Shift+F');
+    await page.waitForSelector('#search-input');
+    await page.fill('#search-input', 'counter');
+    await page.waitForSelector('.search-match', { timeout: 10000 });
+    assert.match(await page.textContent('#search-status'), /\d+ results? in \d+ files?/);
+
+    const names = await page.$$eval('.search-file-name', (all) => all.map((n) => n.textContent));
+    assert.ok(names.includes('app.js'), `app.js should be among the results, got ${names}`);
+
+    const firstFile = await page.textContent('.search-file .search-file-name');
+    const firstLine = await page.textContent('.search-match .search-line');
+    assert.equal(await page.locator('.search-match .search-text mark').count() > 0, true, 'the hit should be highlighted');
+    await page.click('.search-match');
+    await page.waitForSelector(`.tab.active:has-text("${firstFile}")`);
+    assert.match(await page.textContent('#status-cursor'), new RegExp(`^Ln ${firstLine},`));
+  });
+
+  await step('Search: Match case narrows it down, and a broken pattern says so', async () => {
+    await page.fill('#search-input', 'COUNTER');
+    await page.waitForSelector('.search-match', { timeout: 10000 });
+    await page.click('.search-toggle[data-toggle="matchCase"]');
+    await page.waitForFunction(
+      () => document.getElementById('search-status').textContent.includes('No results'),
+      null, { timeout: 10000 },
+    );
+    await page.click('.search-toggle[data-toggle="matchCase"]'); // back off
+
+    await page.click('.search-toggle[data-toggle="regex"]');
+    await page.fill('#search-input', 'count[er');
+    await page.waitForFunction(
+      () => document.getElementById('search-status').classList.contains('error'),
+      null, { timeout: 10000 },
+    );
+    assert.match(await page.textContent('#search-status'), /not a valid regular expression/);
+
+    await page.fill('#search-input', 'count(er|down)');
+    await page.waitForSelector('.search-match', { timeout: 10000 });
+    await page.click('.search-toggle[data-toggle="regex"]');
+    await page.fill('#search-input', '');
+    await showExplorer();
+  });
+
+  await step('renaming a file follows it in the tree, in its tab and in unsaved changes', async () => {
+    await showExplorer();
+    await page.click('.tree-row[data-path="notes.txt"]');
+    await page.waitForSelector('.tab.active:has-text("notes.txt")');
+    await page.click('.monaco-editor .view-lines');
+    await page.keyboard.type('a thought not yet saved');
+    await page.waitForSelector('.tab.active.dirty');
+
+    await page.click('.tree-row[data-path="notes.txt"]', { button: 'right' });
+    await page.waitForSelector('.context-menu .context-item:has-text("Rename")');
+    await page.click('.context-menu .context-item:has-text("Rename")');
+    await page.fill('.tree-input', 'thoughts.md');
+    await page.keyboard.press('Enter');
+
+    await page.waitForSelector('.tree-row[data-path="thoughts.md"]');
+    assert.equal(await page.locator('.tree-row[data-path="notes.txt"]').count(), 0, 'the old name should be gone');
+    await page.waitForSelector('.tab.active:has-text("thoughts.md")');
+    assert.equal(await exists('.tab.active.dirty'), true, 'unsaved changes must survive the rename');
+    assert.match(await editorValue(), /a thought not yet saved/);
+    assert.equal(await page.evaluate(() => window.SVS.fs.exists('thoughts.md')), true);
+    assert.equal(await page.evaluate(() => window.SVS.fs.exists('notes.txt')), false);
+    // The language follows the new extension, which is what the rebuilt model is for.
+    assert.equal(await page.textContent('#status-language'), 'Markdown');
+  });
+
+  await step('renaming a file leaves the cursor in the file you are looking at alone', async () => {
+    await showExplorer();
+    await page.click('.tree-row[data-path="index.html"]');
+    await page.waitForSelector('.tab.active:has-text("index.html")');
+    await page.evaluate(() => window.SVS.getEditor().setPosition({ lineNumber: 9, column: 3 }));
+    await page.waitForFunction(() => document.getElementById('status-cursor').textContent === 'Ln 9, Col 3');
+
+    await page.click('.tree-row[data-path="thoughts.md"]', { button: 'right' });
+    await page.click('.context-menu .context-item:has-text("Rename")');
+    await page.fill('.tree-input', 'thoughts2.md');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.tree-row[data-path="thoughts2.md"]');
+
+    assert.equal(await page.textContent('#status-cursor'), 'Ln 9, Col 3', 'the cursor must not jump');
+    assert.equal(await activeTabName(), 'index.html', 'the tab on screen must not change');
+    // Put the name back, so the steps below read as they were written.
+    await page.click('.tree-row[data-path="thoughts2.md"]', { button: 'right' });
+    await page.click('.context-menu .context-item:has-text("Rename")');
+    await page.fill('.tree-input', 'thoughts.md');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.tree-row[data-path="thoughts.md"]');
+  });
+
+  await step('renaming onto a name that is taken is refused', async () => {
+    await page.click('.tree-row[data-path="thoughts.md"]', { button: 'right' });
+    await page.click('.context-menu .context-item:has-text("Rename")');
+    await page.fill('.tree-input', 'index.html');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.toast.error');
+    assert.match(await page.textContent('.toast.error .toast-text'), /already exists/);
+    await page.waitForSelector('.tree-row[data-path="thoughts.md"]'); // nothing moved
+    await page.click('.toast.error .toast-close');
+  });
+
+  await step('Copy Path copies the path inside the folder', async () => {
+    await showExplorer();
+    await page.click('.tree-row[data-path="css/style.css"]', { button: 'right' });
+    await page.click('.context-menu .context-item:has-text("Copy Path")');
+    await page.waitForSelector('.toast.success');
+    assert.match(await page.textContent('.toast.success .toast-text'), /Copied "css\/style\.css"/);
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'css/style.css');
+  });
+
+  await step('deleting a file asks first, then takes its tab with it', async () => {
+    await page.click('.tree-row[data-path="thoughts.md"]', { button: 'right' });
+    await page.click('.context-menu .context-item:has-text("Delete")');
+    await page.waitForSelector('dialog.dialog[open]');
+    assert.match(await page.textContent('.dialog-title'), /Delete file "thoughts\.md"\?/);
+    assert.equal(await page.textContent('.dialog-confirm'), 'Delete file');
+    await page.click('.dialog-confirm');
+
+    await page.waitForFunction(() => !document.querySelector('.tree-row[data-path="thoughts.md"]'));
+    assert.equal(await page.locator('.tab:has-text("thoughts.md")').count(), 0, 'the tab goes with the file');
+    assert.equal(await page.evaluate(() => window.SVS.fs.exists('thoughts.md')), false);
+  });
+
+  await step('deleting can be called off, and then nothing happens', async () => {
+    await page.click('.tree-row[data-path="about.html"]', { button: 'right' });
+    await page.click('.context-menu .context-item:has-text("Delete")');
+    await page.waitForSelector('dialog.dialog[open]');
+    await page.click('.dialog-cancel');
+    await page.waitForSelector('.tree-row[data-path="about.html"]');
+    assert.equal(await page.evaluate(() => window.SVS.fs.exists('about.html')), true);
+  });
+
+  await step('the right-click menu can be reached from the keyboard', async () => {
+    await page.focus('.tree-row[data-path="index.html"]');
+    await page.keyboard.press('Shift+F10');
+    await page.waitForSelector('.context-menu .context-item');
+    // The first item is focused, so Arrow keys and Enter are enough to use it.
+    assert.match(await page.evaluate(() => document.activeElement.textContent), /Rename/);
+    await page.keyboard.press('ArrowDown');
+    assert.match(await page.evaluate(() => document.activeElement.textContent), /Delete/);
+    await page.keyboard.press('Escape');
+    assert.equal(await exists('.context-menu:not([hidden])'), false, 'Escape should close the menu');
+    assert.equal(
+      await page.evaluate(() => document.activeElement.dataset.path),
+      'index.html',
+      'the focus should come back to the row it was opened from',
+    );
+  });
+
+  await step('the live refresh delay can be chosen in Settings', async () => {
+    await page.click('#btn-settings');
+    await page.selectOption('#setting-live-delay', '250');
+    assert.equal(await page.evaluate(() => window.SVS.state.settings.liveRefreshDelay), 250);
+    assert.equal(
+      await page.evaluate(() => JSON.parse(localStorage.getItem('svs.settings')).liveRefreshDelay),
+      250,
+      'the choice should be remembered in this browser',
+    );
+    await page.selectOption('#setting-live-delay', '750'); // back to the default for the live tests
+    await showExplorer();
   });
 
   await step('Go Live serves the sample site in the preview panel', async () => {
@@ -523,6 +780,31 @@ try {
     pistonMode = 'ok';
   });
 
+  await step('a position in the output is a button that jumps to that line', async () => {
+    // The stand-in compiler complains about main.cpp:3:5, so give the folder a main.cpp for it
+    // to be talking about — a name that matches nothing here must stay plain text.
+    await page.evaluate(async () => {
+      const { fs } = window.SVS;
+      await fs.createFile('', 'main.cpp');
+      await fs.writeText('main.cpp', 'int main() {\n  int a = 1;\n  int b = 2\n  return 0;\n}\n');
+    });
+    await page.hover('#view-explorer');
+    await page.click('[data-action="refresh"]');
+    await page.click('.tree-row[data-path="main.cpp"]');
+    await page.waitForSelector('.tab.active:has-text("main.cpp")');
+
+    pistonMode = 'compile-error';
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.querySelector('#output-text .out-link'), null, { timeout: 20000 });
+    pistonMode = 'ok';
+    assert.equal(await page.textContent('#output-text .out-link'), 'main.cpp:3:5');
+
+    await page.click('.tab:has-text("index.html")'); // look away, so the jump has to do the work
+    await page.click('#output-text .out-link');
+    await page.waitForSelector('.tab.active:has-text("main.cpp")');
+    assert.equal(await page.textContent('#status-cursor'), 'Ln 3, Col 5');
+  });
+
   await step('being rate limited explains itself in plain words', async () => {
     pistonMode = 'ratelimit';
     await page.click('#btn-run');
@@ -651,6 +933,22 @@ try {
     assert.equal(sent.files[0].name, 'main.py');
     assert.equal(sent.files.length, 1, 'the scratch file has no companions');
     assert.match(await page.textContent('#output-text'), /Running main\.py with Python 3\.12\.0/);
+  });
+
+  await step('the scratch file\'s own error positions are clickable too', async () => {
+    // The service is given the scratch file under a name of its own ("main.cpp"), and that is
+    // the name the compiler answers with, so the link has to find its way back to the tab.
+    await page.selectOption('#language-select', 'cpp');
+    await page.waitForSelector('.tab.active:has-text("untitled.cpp")');
+    // The stand-in compiler points at line 3, column 5, so give it a file that has one.
+    await page.evaluate(() => window.SVS.getEditor().setValue('int main() {\n  int a = 1;\n  int b = 2\n  return 0;\n}\n'));
+    pistonMode = 'compile-error';
+    await page.click('#btn-run');
+    await page.waitForFunction(() => document.querySelector('#output-text .out-link'), null, { timeout: 20000 });
+    pistonMode = 'ok';
+    await page.click('#output-text .out-link');
+    await page.waitForSelector('.tab.active.scratch');
+    assert.equal(await page.textContent('#status-cursor'), 'Ln 3, Col 5');
   });
 
   await step('a Java scratch file is named after its public class', async () => {
@@ -800,6 +1098,7 @@ try {
     'hello/index.html': '<!doctype html>\n<title>Zipped</title>\n<h1>From a zip</h1>\n',
     'hello/css/style.css': 'body { color: #0f0; }\n',
     'hello/img/dot.png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 255, 254]),
+    'hello/img/pixel.png': makePng(3, 2),
     'hello/empty/': '',
     '__MACOSX/hello/._index.html': 'junk macOS leaves in every zip it makes',
   });
@@ -835,6 +1134,62 @@ try {
   await step('a binary file inside a zip survives being unpacked', async () => {
     const bytes = await page.evaluate(async () => [...new Uint8Array(await window.SVS.fs.readBinary('img/dot.png'))]);
     assert.deepEqual(bytes, [0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 255, 254], 'the PNG bytes must be untouched');
+  });
+
+  await step('an image opens in an image tab that says how big it is', async () => {
+    await page.click('.tree-row[data-path="img"]');
+    await page.click('.tree-row[data-path="img/pixel.png"]');
+    await page.waitForSelector('.image-view .image-canvas');
+    await page.waitForFunction(
+      () => /3 × 2/.test(document.querySelector('.image-meta')?.textContent || ''),
+      null, { timeout: 10000 },
+    );
+    const meta = await page.textContent('.image-meta');
+    assert.match(meta, /3 × 2/, 'the real pixel size should be read from the image');
+    assert.match(meta, /PNG/);
+    assert.equal(await exists('.image-view.fit'), true, 'it should start scaled to fit');
+    assert.equal(await page.textContent('.image-zoom'), 'Full size');
+
+    await page.click('.image-zoom');
+    assert.equal(await exists('.image-view.fit'), false, 'the button should switch to full size');
+    assert.equal(await page.textContent('.image-zoom'), 'Fit to tab');
+    // Switching away and back must not leave two pictures behind or lose the choice.
+    await page.click('.tab:has-text("index.html")');
+    await page.click('.tab:has-text("pixel.png")');
+    await page.waitForSelector('.image-view .image-canvas');
+    assert.equal(await page.locator('.image-canvas').count(), 1);
+    assert.equal(await exists('.image-view.fit'), false, 'it should still be at full size');
+  });
+
+  await step('a file that only pretends to be an image says so', async () => {
+    await page.click('.tree-row[data-path="img/dot.png"]');
+    await page.waitForFunction(
+      () => document.getElementById('editor-placeholder').textContent.includes('could not be displayed'),
+      null, { timeout: 10000 },
+    );
+    await page.click('.tab:has-text("index.html")');
+  });
+
+  await step('a font or archive is not claimed to be editable text', async () => {
+    await page.evaluate(async () => {
+      const { fs } = window.SVS;
+      await fs.createFile('', 'font.woff2');
+      await fs.writeText('font.woff2', 'not really a font, but the extension is what counts');
+    });
+    await page.hover('#view-explorer');
+    await page.click('[data-action="refresh"]');
+    // Straight from the image tab, whose <img> is being let go of as this one is drawn.
+    await page.click('.tab:has-text("pixel.png")');
+    await page.waitForSelector('.image-view .image-canvas');
+    await page.click('.tree-row[data-path="font.woff2"]');
+    await page.waitForFunction(
+      () => document.getElementById('editor-placeholder').textContent.includes('binary file'),
+      null, { timeout: 10000 },
+    );
+    const shown = await page.textContent('#editor-placeholder');
+    assert.match(shown, /\d+ B|KB/, 'it should say how big the file is');
+    assert.doesNotMatch(shown, /could not be displayed/, 'the image tab must not leave its message behind');
+    await page.click('.tab:has-text("index.html")');
   });
 
   await step('editing a file from a zip says the edit is not back in the zip yet', async () => {
@@ -949,6 +1304,152 @@ try {
     });
     await page.waitForFunction(() => document.getElementById('toasts').textContent.includes('does not look like a zip'));
     assert.equal(await page.textContent('.tree-header-name'), 'bits', 'the open folder must survive a zip that cannot be read');
+  });
+
+  // The outside-change watcher only runs for a real folder on the disk, and no test can click
+  // the browser's folder picker. So the app is handed a folder that behaves like one — it
+  // answers the same calls, and the test decides what its files say and when they changed.
+  await step('a file changed outside the editor updates a tab you have not touched', async () => {
+    await page.evaluate(() => {
+      const files = new Map([['main.js', 'console.log("from the disk")\n']]);
+      const times = new Map([['main.js', 1000]]);
+      window.__disk = { files, times };
+      const list = () => [...files.keys()].map((path) => ({ name: path, path, kind: 'file' }));
+      return window.SVS.adoptFolder({
+        kind: 'native',            // the watcher only follows a folder that can change behind us
+        name: 'watched',
+        readOnly: false,
+        sample: false,
+        handle: null,
+        async tree() { return { name: 'watched', path: '', kind: 'dir', children: list() }; },
+        async readText(path) { return files.get(path); },
+        async readBinary(path) { return new TextEncoder().encode(files.get(path)).buffer; },
+        async stat(path) { return { size: files.get(path).length, lastModified: times.get(path) }; },
+        async writeText(path, text) { files.set(path, text); times.set(path, (times.get(path) || 0) + 1000); },
+        async createFile() { throw new Error('not needed'); },
+        async createDir() { throw new Error('not needed'); },
+        async exists(path) { return files.has(path); },
+        async remove(path) {
+          // The test can make a delete fail, the way a locked or no-longer-permitted file does.
+          if (window.__disk.failRemove) throw new Error('the file is locked');
+          files.delete(path);
+        },
+        async rename() { throw new Error('not needed'); },
+        async countFiles() { return 0; },
+      });
+    });
+    await waitForProject('watched');
+    await page.click('.tree-row[data-path="main.js"]');
+    await page.waitForSelector('.tab.active:has-text("main.js")');
+
+    await page.evaluate(() => {
+      window.__disk.files.set('main.js', 'console.log("changed by something else")\n');
+      window.__disk.times.set('main.js', 9000);
+      return window.SVS.checkNow();
+    });
+    await page.waitForFunction(
+      () => window.SVS.getEditor().getValue().includes('changed by something else'),
+      null, { timeout: 10000 },
+    );
+    assert.equal(await exists('.tab.active.dirty'), false, 'a tab you never edited stays clean');
+    await page.waitForSelector('.toast:has-text("changed outside the editor")');
+  });
+
+  await step('a file changed outside the editor asks before touching your unsaved work', async () => {
+    await page.click('.monaco-editor .view-lines');
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n// my own unsaved line');
+    await page.waitForSelector('.tab.active.dirty');
+
+    await page.evaluate(() => {
+      window.__disk.files.set('main.js', 'console.log("their version")\n');
+      window.__disk.times.set('main.js', 12000);
+      return window.SVS.checkNow();
+    });
+    await page.waitForSelector('.toast.warning:has-text("unsaved changes") .toast-actions .btn');
+    assert.match(await editorValue(), /my own unsaved line/, 'nothing may be replaced before you answer');
+
+    await page.click('.toast .toast-actions .btn:has-text("Keep mine")');
+    await page.waitForSelector('.toast:has-text("Kept your version")');
+    assert.match(await editorValue(), /my own unsaved line/);
+    assert.equal(await exists('.tab.active.dirty'), true, 'your version is still unsaved');
+  });
+
+  await step('choosing "Load theirs" takes the version from the disk', async () => {
+    await page.evaluate(() => {
+      window.__disk.files.set('main.js', 'console.log("the newest from the disk")\n');
+      window.__disk.times.set('main.js', 15000);
+      return window.SVS.checkNow();
+    });
+    await page.waitForSelector('.toast .toast-actions .btn:has-text("Load theirs")');
+    await page.click('.toast .toast-actions .btn:has-text("Load theirs")');
+    await page.waitForFunction(
+      () => window.SVS.getEditor().getValue().includes('the newest from the disk'),
+      null, { timeout: 10000 },
+    );
+    assert.doesNotMatch(await editorValue(), /my own unsaved line/);
+    assert.equal(await exists('.tab.active.dirty'), false, 'taking their version leaves nothing unsaved');
+  });
+
+  await step('our own save is not reported as an outside change', async () => {
+    await page.click('.monaco-editor .view-lines');
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n// saved by me');
+    await page.keyboard.press('Control+s');
+    await page.waitForSelector('.tab.active:not(.dirty)');
+    // Ctrl+S moves the file's modification time, which is exactly what the watcher looks at.
+    await page.evaluate(() => window.SVS.checkNow());
+    await sleep(200);
+    assert.match(await editorValue(), /saved by me/, 'the save must not be undone by a reload');
+    const toasts = await page.$$eval('.toast .toast-text', (all) => all.map((t) => t.textContent));
+    assert.ok(
+      !toasts.some((text) => text.includes('changed outside the editor')),
+      `no outside-change notice should appear, got ${JSON.stringify(toasts)}`,
+    );
+  });
+
+  await step('a question closed unanswered is not repeated, but the next change still asks', async () => {
+    await page.click('.monaco-editor .view-lines');
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n// unsaved again');
+    await page.waitForSelector('.tab.active.dirty');
+
+    await page.evaluate(() => {
+      window.__disk.files.set('main.js', 'console.log("theirs again")\n');
+      window.__disk.times.set('main.js', 20000);
+      return window.SVS.checkNow();
+    });
+    await page.waitForSelector('.toast.warning:has-text("unsaved changes")');
+    await page.click('.toast.warning:has-text("unsaved changes") .toast-close');
+
+    // The same change must not come back every three seconds…
+    await page.evaluate(() => window.SVS.checkNow());
+    await sleep(200);
+    assert.equal(await page.locator('.toast.warning:has-text("unsaved changes")').count(), 0);
+    assert.match(await editorValue(), /unsaved again/, 'and nothing of ours may be replaced');
+
+    // …but a further change on the disk is a new question, not silence.
+    await page.evaluate(() => {
+      window.__disk.files.set('main.js', 'console.log("newer still")\n');
+      window.__disk.times.set('main.js', 25000);
+      return window.SVS.checkNow();
+    });
+    await page.waitForSelector('.toast.warning:has-text("unsaved changes")');
+  });
+
+  await step('a delete that fails keeps the file and its tab', async () => {
+    await showExplorer();
+    await page.evaluate(() => { window.__disk.failRemove = true; });
+    await page.click('.tree-row[data-path="main.js"]', { button: 'right' });
+    await page.click('.context-menu .context-item:has-text("Delete")');
+    await page.waitForSelector('dialog.dialog[open]');
+    await page.click('.dialog-confirm');
+
+    await page.waitForSelector('.toast.error:has-text("Unable to delete")');
+    await page.waitForSelector('.tree-row[data-path="main.js"]');
+    assert.equal(await page.locator('.tab:has-text("main.js")').count(), 1, 'the tab must survive a failed delete');
+    assert.match(await editorValue(), /unsaved again/, 'and so must the unsaved changes in it');
+    await page.evaluate(() => { window.__disk.failRemove = false; });
   });
 
   await step('no JavaScript errors were thrown by the page', async () => {

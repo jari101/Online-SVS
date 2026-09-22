@@ -7,8 +7,9 @@ import * as fs from './fs/index.js';
 import { fontById } from './fonts.js';
 import { toast } from './toast.js';
 import { icons } from './icons.js';
-import { escapeHtml } from './dom.js';
+import { escapeHtml, formatBytes } from './dom.js';
 import { confirmDialog } from './dialog.js';
+import { showImage, releaseImage } from './imageview.js';
 
 /** The pseudo-path of the scratch file (it does not exist on disk). */
 export const SCRATCH_PATH = '__scratch__';
@@ -110,6 +111,7 @@ export function applyModelOptionsToAll() {
 /* ---------- Placeholder (what you see when no text file is active) ---------- */
 
 export function showPlaceholder(html) {
+  releaseImage(placeholderEl);
   placeholderEl.innerHTML = html;
   placeholderEl.hidden = false;
 }
@@ -126,6 +128,8 @@ function emptyPlaceholder() {
       <p>Open a file from the Explorer to start editing.</p>
       <div class="shortcuts">
         <span>Save file</span><span><kbd>Ctrl</kbd> + <kbd>S</kbd></span>
+        <span>Go to file</span><span><kbd>Ctrl</kbd> + <kbd>P</kbd></span>
+        <span>Search in files</span><span><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></span>
         <span>Toggle sidebar</span><span><kbd>Ctrl</kbd> + <kbd>B</kbd></span>
         <span>Toggle bottom panel</span><span><kbd>Ctrl</kbd> + <kbd>J</kbd></span>
         <span>Settings</span><span><kbd>Ctrl</kbd> + <kbd>,</kbd></span>
@@ -134,12 +138,14 @@ function emptyPlaceholder() {
 }
 
 function binaryPlaceholder(entry) {
+  const size = entry.size === undefined ? '' : `<p class="muted small">${escapeHtml(formatBytes(entry.size))}</p>`;
   return `
     <div class="placeholder-content">
       <div class="placeholder-logo">${icons.file}</div>
       <h2>${escapeHtml(entry.name)}</h2>
-      <p>This is a binary file (image, font, archive…), so it cannot be edited as text.</p>
-      <p class="muted small">An image preview arrives in Phase 4.</p>
+      <p>This is a binary file (a font, an archive, a program…), so it cannot be edited as text.</p>
+      ${size}
+      <p class="muted small">It is still part of your folder: the live preview serves it and Save Folder packs it up.</p>
     </div>`;
 }
 
@@ -191,7 +197,10 @@ export function openFile(path, { activate = true, position = null } = {}) {
     const name = fs.baseName(path);
     let entry;
     if (fs.isBinaryPath(path)) {
-      entry = { path, name, kind: 'binary', dirty: false };
+      // The size is worth showing and cheap to ask for, but a folder that cannot answer
+      // should still open the tab.
+      const size = await fs.stat(path).then((s) => s.size, () => undefined);
+      entry = { path, name, kind: 'binary', dirty: false, size, objectUrl: null };
     } else {
       const text = await fs.readText(path);
       const uri = monaco.Uri.file('/' + path);
@@ -254,6 +263,13 @@ export function activateFile(path) {
     hidePlaceholder();
     editor.focus();
     emit('cursor', editor.getPosition() || { lineNumber: 1, column: 1 });
+  } else if (fs.isImagePath(entry.path)) {
+    editor.setModel(null);
+    showImage(placeholderEl, entry).catch((err) => {
+      console.error(err);
+      showPlaceholder(binaryPlaceholder(entry));
+    });
+    placeholderEl.hidden = false;
   } else {
     editor.setModel(null);
     showPlaceholder(binaryPlaceholder(entry));
@@ -262,14 +278,145 @@ export function activateFile(path) {
   emit('tabs');
 }
 
-/** Jump to a line and column in a file (used by the Problems tab). */
-export function revealPosition(path, lineNumber, column = 1) {
+/** Jump to a line and column in a file that is already open (used by the Problems tab). */
+export function revealPosition(path, lineNumber, column = 1, length = 0) {
   const entry = findEntry(path);
   if (!entry || entry.kind !== 'text') return;
   activateFile(path);
-  editor.setPosition({ lineNumber, column });
+  if (length > 0) editor.setSelection({ startLineNumber: lineNumber, startColumn: column, endLineNumber: lineNumber, endColumn: column + length });
+  else editor.setPosition({ lineNumber, column });
   editor.revealLineInCenter(lineNumber);
   editor.focus();
+}
+
+/**
+ * Jump to a place in any file of the folder, opening it first if it is not open yet.
+ * `length` highlights that many characters, which is how a search result shows what it found.
+ */
+export async function gotoLocation(path, lineNumber, column = 1, length = 0) {
+  if (!findEntry(path)) await openFile(path, { activate: false });
+  revealPosition(path, lineNumber, column, length);
+}
+
+/* ---------- Renaming and reloading ---------- */
+
+/**
+ * Follow a renamed file (or a renamed folder) in the open tabs.
+ *
+ * A Monaco model is tied to its URI for life — the URI is what gives the file its language —
+ * so the model is built again under the new path. The text goes along untouched, including
+ * unsaved changes, and a tab that was showing the file keeps showing it.
+ */
+export function retargetOpenFiles(oldPath, newPath) {
+  const affected = state.openFiles.filter((f) => !f.scratch && (f.path === oldPath || f.path.startsWith(oldPath + '/')));
+  if (!affected.length) return;
+  const pathFor = (path) => (path === oldPath ? newPath : newPath + path.slice(oldPath.length));
+  // Was the tab on screen one of the renamed ones? Only then does the editor need touching:
+  // a saved view state is from the last time a tab was left, so restoring it on a tab nobody
+  // renamed would drag the cursor back to where it used to be.
+  const showingAffected = affected.some((entry) => entry.path === state.activePath);
+
+  for (const entry of affected) {
+    const wasActive = state.activePath === entry.path;
+    const target = pathFor(entry.path);
+
+    if (entry.kind === 'text') {
+      const text = entry.model.getValue();
+      const wasDirty = entry.dirty;
+      const viewState = wasActive && editor.getModel() === entry.model
+        ? editor.saveViewState()
+        : entry.viewState;
+      if (editor.getModel() === entry.model) editor.setModel(null);
+      entry.model.dispose();
+
+      const uri = monaco.Uri.file('/' + target);
+      monaco.editor.getModel(uri)?.dispose();
+      entry.model = monaco.editor.createModel(text, undefined, uri);
+      applyModelOptions(entry.model);
+      entry.viewState = viewState;
+      // A fresh model starts at version 1, so unsaved changes are kept dirty by hand.
+      entry.savedVersion = wasDirty ? -1 : entry.model.getAlternativeVersionId();
+      entry.dirty = wasDirty;
+      watchModel(entry);
+    }
+
+    entry.path = target;
+    entry.name = fs.baseName(target);
+    if (wasActive) state.activePath = target;
+  }
+
+  emit('tabs');
+  if (!showingAffected) return;
+  const active = findEntry(state.activePath);
+  if (!active) return;
+  if (active.kind === 'text') {
+    editor.setModel(active.model);
+    if (active.viewState) editor.restoreViewState(active.viewState);
+    emit('active', active);
+  } else {
+    activateFile(active.path); // an image tab is drawn from the entry, so it redraws its name
+  }
+}
+
+/**
+ * Put the text from the disk into an open tab, keeping the cursor, the scroll position and
+ * the undo history — that is what makes a file changed by another program simply update
+ * rather than jump. Returns false when the tab is not there any more.
+ */
+export function reloadFile(path, text) {
+  const entry = findEntry(path);
+  if (!entry || entry.kind !== 'text' || entry.model.isDisposed()) return false;
+  const { model } = entry;
+
+  if (model.getValue() !== text) {
+    const showing = editor.getModel() === model;
+    const viewState = showing ? editor.saveViewState() : null;
+    // An edit operation rather than setValue(): setValue throws the undo history away.
+    model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
+    if (showing && viewState) editor.restoreViewState(viewState);
+  }
+  entry.savedVersion = model.getAlternativeVersionId();
+  entry.dirty = false;
+  emit('tabs');
+  return true;
+}
+
+/**
+ * Close the tabs of files that are no longer there (they have just been deleted), without
+ * asking about unsaved changes — the deletion was already confirmed.
+ */
+export function closeFilesUnder(path) {
+  const gone = state.openFiles.filter((f) => !f.scratch && (f.path === path || f.path.startsWith(path + '/')));
+  if (!gone.length) return;
+  const stillShowing = gone.some((f) => f.path === state.activePath);
+
+  for (const entry of gone) {
+    const index = state.openFiles.indexOf(entry);
+    if (index !== -1) state.openFiles.splice(index, 1);
+    disposeEntry(entry);
+  }
+
+  if (stillShowing) {
+    const next = state.openFiles[0];
+    if (next) {
+      activateFile(next.path);
+    } else {
+      state.activePath = null;
+      editor.setModel(null);
+      showPlaceholder(emptyPlaceholder());
+      emit('active', null);
+    }
+  }
+  emit('tabs');
+}
+
+/** Let go of everything a closed tab was holding: its model, and any image it had loaded. */
+function disposeEntry(entry) {
+  entry.model?.dispose();
+  if (entry.objectUrl) {
+    URL.revokeObjectURL(entry.objectUrl);
+    entry.objectUrl = null;
+  }
 }
 
 /** Close a tab. Asks first when there are unsaved changes. Resolves to true when closed. */
@@ -290,7 +437,7 @@ export async function closeFile(path) {
   const index = state.openFiles.indexOf(entry);
   if (index === -1) return false; // closed meanwhile
   state.openFiles.splice(index, 1);
-  entry.model?.dispose();
+  disposeEntry(entry);
 
   if (state.activePath === path) {
     const next = state.openFiles[index] || state.openFiles[index - 1];
@@ -309,7 +456,7 @@ export async function closeFile(path) {
 
 /** Close every tab without asking (the caller has already checked for unsaved changes). */
 export function closeAllFiles() {
-  for (const entry of state.openFiles) entry.model?.dispose();
+  for (const entry of state.openFiles) disposeEntry(entry);
   state.openFiles = [];
   state.activePath = null;
   if (editor) {

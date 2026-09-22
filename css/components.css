@@ -41,6 +41,8 @@ p { text-wrap: pretty; }
 .btn-danger { background: var(--bg-danger); }
 .btn-danger:hover:not(:disabled) { background: var(--bg-danger-hover); }
 .btn-caret { padding: 0 4px; border-inline-start: 1px solid var(--border-strong); border-radius: 0 2px 2px 0; }
+/* For buttons inside something small: the answer buttons on a toast, the image tab's bar. */
+.btn-small { height: 22px; padding: 0 10px; font-size: 11px; }
 .btn-run  { background: var(--bg-run); }
 .btn-run:hover:not([aria-disabled="true"])  { background: var(--bg-run-hover); }
 /* While a program is running the button turns neutral and offers to stop waiting.
@@ -576,7 +578,9 @@ button.status-item:focus-visible { outline: 1px solid var(--fg-bright); outline-
   line-height: 1.4;
   pointer-events: auto;
 }
-.toast-text { flex: 1; text-wrap: pretty; }
+.toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.toast-text { text-wrap: pretty; }
+.toast-actions { display: flex; gap: 6px; }
 .toast-close { flex: none; width: 24px; height: 24px; margin: -4px -2px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; color: var(--fg-muted); }
 .toast-close:hover { background: var(--bg-hover-subtle); color: var(--fg-bright); }
 .toast.success { border-inline-start-color: var(--success); }
@@ -587,3 +591,195 @@ button.status-item:focus-visible { outline: 1px solid var(--fg-bright); outline-
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 }
 .toast.leaving { opacity: 0; }
+
+/* ---------- Right-click menu (Explorer) ---------- */
+.context-menu {
+  position: fixed;
+  z-index: 150;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg-menu);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+}
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 26px;
+  padding: 0 10px;
+  color: var(--fg);
+  text-align: start;
+  border-radius: 3px;
+}
+.context-item:hover:not(:disabled), .context-item:focus-visible { background: var(--bg-list-active); color: var(--fg-bright); }
+.context-item:disabled { color: var(--fg-muted); }
+.context-item.danger:hover, .context-item.danger:focus-visible { background: var(--bg-danger); color: var(--fg-bright); }
+.context-label { flex: 1; }
+.context-hint { color: var(--fg-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.context-item:hover .context-hint, .context-item:focus-visible .context-hint { color: var(--fg); }
+.context-separator { height: 1px; margin: 4px 8px; background: var(--border-strong); }
+
+/* ---------- Search view ---------- */
+.search-head { padding: 0 12px 8px; flex: none; }
+.search-field { position: relative; display: flex; align-items: center; }
+#search-input {
+  width: 100%;
+  height: 26px;
+  padding: 0 62px 0 8px;   /* room for the two toggles sitting inside the box */
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--bg-input);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 13px;
+}
+#search-input:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; border-color: var(--focus); }
+.search-toggles { position: absolute; inset-inline-end: 3px; display: flex; gap: 2px; }
+.search-toggle {
+  width: 26px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.search-toggle:hover { color: var(--fg); background: var(--bg-hover-subtle); }
+.search-toggle[aria-pressed="true"] { color: var(--fg-bright); background: var(--bg-list-active); }
+.search-status { margin: 6px 0 0; min-height: 15px; color: var(--fg-muted); font-size: 11px; text-wrap: pretty; }
+.search-status.error { color: var(--error); }
+.search-results { flex: 1; overflow: auto; padding-bottom: 20px; }
+.search-empty { padding: 4px 12px; margin: 0; line-height: 1.5; text-wrap: pretty; }
+.search-file, .search-match {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 22px;
+  padding-inline: 8px;
+  color: var(--fg);
+  text-align: start;
+  white-space: nowrap;
+}
+.search-file:hover, .search-match:hover { background: var(--bg-hover); }
+.search-file:focus-visible, .search-match:focus-visible { outline: 1px solid var(--focus); outline-offset: -1px; }
+.search-chevron { width: 16px; height: 16px; flex: none; display: inline-flex; }
+.search-file-name { overflow: hidden; text-overflow: ellipsis; }
+.search-file-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); font-size: 11px; }
+.search-match { padding-inline-start: 26px; gap: 8px; }
+.search-line {
+  flex: none;
+  min-width: 26px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.search-text { overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 12px; }
+.search-text mark, .quick-name mark, .quick-dir mark { background: var(--bg-match); color: var(--fg-match); }
+
+/* ---------- Go to file (Ctrl+P) ---------- */
+/* `display` belongs on the open state only: a <dialog> is hidden by the browser's own
+   `display: none`, and a rule that sets `display` unconditionally would beat it — leaving a
+   ghost palette on screen after Escape. */
+.quick-open[open] { display: flex; }
+.quick-open {
+  position: fixed;
+  top: 12vh;
+  inset-inline: 0;
+  width: min(600px, 92vw);
+  max-height: 60vh;
+  margin: 0 auto;
+  padding: 6px;
+  flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-menu);
+  color: var(--fg);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.quick-open::backdrop { background: var(--bg-backdrop); }
+.quick-input {
+  flex: none;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--focus);
+  border-radius: 2px;
+  background: var(--bg-input);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 13px;
+}
+.quick-input:focus-visible { outline: none; }
+.quick-list { flex: 1; min-height: 0; overflow: auto; margin: 6px 0 0; padding: 0; list-style: none; }
+.quick-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quick-item.selected { background: var(--bg-list-active); color: var(--fg-bright); }
+.quick-name { flex: none; overflow: hidden; text-overflow: ellipsis; }
+.quick-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg-muted); font-size: 11px; }
+.quick-item.selected .quick-dir { color: var(--fg); }
+.quick-empty { padding: 8px; text-wrap: pretty; }
+.quick-hint { flex: none; margin: 6px 2px 2px; color: var(--fg-muted); font-size: 11px; }
+
+/* ---------- Image tab ---------- */
+.image-view { position: absolute; inset: 0; display: flex; flex-direction: column; margin: 0; }
+.image-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  padding: 16px;
+  /* The classic two-tone checkerboard, drawn with gradients so it needs no image. */
+  background-color: var(--bg-checker);
+  background-image:
+    linear-gradient(45deg, var(--bg-checker-alt) 25%, transparent 25% 75%, var(--bg-checker-alt) 75%),
+    linear-gradient(45deg, var(--bg-checker-alt) 25%, transparent 25% 75%, var(--bg-checker-alt) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+/* `margin: auto` rather than centring the flex line: a picture bigger than the tab then
+   scrolls to its own top-left corner instead of having it cut off. */
+.image-button { display: block; margin: auto; padding: 0; background: none; border-radius: 0; cursor: zoom-in; }
+.image-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.image-view.fit .image-button { cursor: zoom-out; }
+.image-canvas { display: block; image-rendering: auto; }
+/* Fitted: never bigger than the space there is. Full size: its own pixels, and scroll bars. */
+.image-view.fit .image-canvas { max-width: 100%; max-height: 100%; }
+.image-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--tab-h);
+  padding: 0 12px;
+  background: var(--bg-tabbar);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.image-name { color: var(--fg-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.image-meta { flex: 1; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- Clickable file positions in the Output tab ---------- */
+.out-link {
+  color: var(--info);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: 2px;
+}
+.out-link:hover { color: var(--fg-bright); }
+.out-link:focus-visible { outline: 1px solid var(--focus); outline-offset: 1px; }
