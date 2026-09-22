@@ -21,7 +21,7 @@ export const CONFIG = {
   // The code runner for languages a browser cannot run by itself: C, C++, Java, C#, Go,
   // Rust and the rest. There is no default any more — the free public Piston service closed
   // to the public on 15 February 2026 — so this is empty until you point Settings at a
-  // Piston of your own. See the README for how to start one.
+  // Piston of your own. docs/code-runner.md walks through setting one up.
   defaultRunnerUrl: window.SVS_PISTON_URL || '',
 
   // Folder names the explorer never reads (they are huge and never part of a website).

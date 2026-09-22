@@ -81,7 +81,7 @@ function noRunnerError(lang) {
     `${lang.name} cannot run inside your browser: it has to be compiled first.\n\n`
     + '  Two ways to fix this:\n'
     + `  • Switch to ${browserLanguageNames()}, which run here with no setup\n`
-    + '  • Add your own code runner in Settings ⚙ — see the README for how to start one\n\n'
+    + '  • Add your own code runner in Settings ⚙ — docs/code-runner.md walks through it\n\n'
     + 'The free public Piston service closed to the public in February 2026, which is why '
     + 'there is no address built in any more.',
     'settings',

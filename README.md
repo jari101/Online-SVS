@@ -133,39 +133,28 @@ the rest say so and offer to take you to the setting.
 
 #### Running your own Piston
 
-It is one Docker command on any machine that stays on — a spare PC, a Raspberry Pi, a small VPS:
+**[docs/code-runner.md](docs/code-runner.md) is the full walkthrough** — a free Oracle Cloud
+machine, Piston, and Caddy for HTTPS and CORS, so every visitor gets a working Run button. It
+takes about an hour. There is a ten-minute version at the end for when you only need it working
+on your own computer.
 
-```sh
-docker run -d --name piston -p 2000:2000 --privileged -v piston:/piston ghcr.io/engineer-man/piston
-# then install the languages you want, for example:
-docker exec piston /piston/packages/ppman install python 3.12.0
-docker exec piston /piston/packages/ppman install gcc 10.2.0
-```
+Three things that guide exists to save you from, because none of them explain themselves:
 
-**Piston sends no CORS headers of its own**, so a browser will refuse to talk to it directly —
-this is true even on your own machine. Put something in front of it that adds them. Caddy is two
-lines:
+- **Not the ARM machine.** Oracle's headline free offer is Ampere A1, and Piston has no ARM
+  build — its image ships a single-architecture manifest and its compilers are built only for
+  x86-64. Use the AMD shape.
+- **Piston sends no CORS headers**, so a browser refuses to talk to it at all, even on your own
+  machine. Something has to sit in front and add them.
+- **Piston's defaults are 64 concurrent jobs and no memory limit**, which a small machine does
+  not survive. The guide sets both.
 
-```
-# Caddyfile — then: caddy run
-runner.example.com {
-    header Access-Control-Allow-Origin "https://your-site.example"
-    header Access-Control-Allow-Headers "Content-Type, Authorization"
-    @options method OPTIONS
-    respond @options 204
-    reverse_proxy localhost:2000
-}
-```
+The **Key** field in Settings is only for a public Piston that whitelisted you; one you run
+yourself needs none.
 
-Point **Settings → Code runner** at that address, ending in `/api/v2`, and press
-**Test connection**. The **Key** field is only for a public Piston that whitelisted you; one you
-run yourself needs none.
-
-**A Piston on your own machine only serves you.** `http://localhost` means *the computer the
-browser is on*, so it is your own PC and nobody else's. It also has to clear the browser's local
-network rules: from Chrome 142 onwards, a site on the public internet reaching anything on
-loopback is [behind a permission prompt](https://developer.chrome.com/blog/local-network-access).
-Serving Online SVS locally as well — same machine, same kind of address — avoids that. To give
+**A runner on your own machine only serves you.** `http://localhost` means *the computer the
+browser is on*, so it is your own PC and nobody else's, and from Chrome 142 a site on the public
+internet reaching loopback is
+[behind a permission prompt](https://developer.chrome.com/blog/local-network-access). To give
 other people a Run button, the runner needs a real domain with HTTPS.
 
 **Which files are sent.** Only a run that goes to your code runner sends anything at all. The

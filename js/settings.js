@@ -146,7 +146,8 @@ export function renderSettings(container) {
       </div>
       <p class="settings-note">
         The free public Piston closed to the public on 15 February 2026, so there is no address
-        built in any more. The README shows how to start your own with Docker.
+        built in any more. <code>docs/code-runner.md</code> in this project walks through
+        starting one of your own, free, so that every visitor gets a working Run button.
       </p>
 
       <p class="settings-note">Settings and the scratch file are kept in this browser only (localStorage). Nothing is sent to a server.</p>
