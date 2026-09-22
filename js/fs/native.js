@@ -59,6 +59,14 @@ export function fromHandle(root) {
       return file.lastModified;
     },
 
+    /**
+     * A handle to one file inside the folder. Opening a .zip that sits in the folder uses it,
+     * so that saving can write the zip back into the very file it was opened from.
+     */
+    fileHandleFor(path) {
+      return fileHandle(path);
+    },
+
     async writeText(path, text) {
       const handle = await fileHandle(path, true);
       const writable = await handle.createWritable();

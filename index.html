@@ -26,10 +26,11 @@
       <h1 class="app-name">Online SVS</h1>
 
       <div class="menu" id="open-menu">
-        <button id="btn-open-folder" class="btn btn-secondary" title="Open a folder from your computer" disabled>Open Folder</button>
+        <button id="btn-open-folder" class="btn btn-secondary" title="Open a folder from your computer (or drop a .zip anywhere on the page)" disabled>Open Folder</button>
         <button id="btn-open-menu" class="btn btn-secondary btn-caret" aria-label="More file and folder options" aria-haspopup="menu" aria-expanded="false" aria-controls="open-menu-list" data-icon="chevronDown"></button>
         <ul class="menu-list" id="open-menu-list" role="menu" hidden>
           <li role="none"><button role="menuitem" data-command="open-folder">Open Folder…</button></li>
+          <li role="none"><button role="menuitem" data-command="open-zip">Open Zip File…</button></li>
           <li role="none"><button role="menuitem" data-command="open-sample">Open Sample Project</button></li>
           <li role="none"><button role="menuitem" data-command="reopen-folder" id="menu-reopen-folder" hidden>Reopen last folder</button></li>
           <li class="menu-separator" role="separator"></li>
@@ -165,8 +166,18 @@
   </footer>
 </div>
 
+<!-- Shown while a file is dragged over the page, so a drop is never a surprise. -->
+<div id="drop-overlay" class="drop-overlay" hidden>
+  <div class="drop-card">
+    <span class="drop-icon" data-icon="archive" aria-hidden="true"></span>
+    <p class="drop-title">Drop a .zip to open it</p>
+    <p class="drop-note">Its files open like a folder, and Save Folder packs them back into the zip.</p>
+  </div>
+</div>
+
 <div id="toasts" role="status" aria-live="polite"></div>
 <input type="file" id="folder-input" webkitdirectory multiple hidden aria-hidden="true" tabindex="-1">
+<input type="file" id="zip-input" accept=".zip,application/zip" hidden aria-hidden="true" tabindex="-1">
 
 <script type="module" src="js/main.js"></script>
 </body>

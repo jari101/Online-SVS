@@ -353,7 +353,13 @@ export async function saveFile(path) {
 
   // Nothing reached the disk, so say so and point at the way that does.
   markNeedsExport();
-  if (backend.sample) {
+  if (backend.kind === 'zip') {
+    toast(
+      `Saved ${entry.name} in the editor's copy of ${backend.zip.fileName}. Save Folder ` +
+      (backend.zip.handle ? `writes it back into ${backend.zip.fileName}.` : `downloads ${backend.zip.fileName} with your edits.`),
+      'info', 4500,
+    );
+  } else if (backend.sample) {
     toast(`Saved ${entry.name} in the sample project (memory only). Save Folder downloads it as a zip.`, 'info', 4000);
   } else {
     toast(

@@ -15,9 +15,11 @@ let selectedPath = '';           // the last row you clicked
 let selectedDir = '';            // where a new file or folder will be created
 let focusedPath = null;          // the row that receives keyboard focus (roving tabindex)
 let creating = null;             // { kind: 'file' | 'dir', dir } while the inline input is shown
+let openZip = null;              // main.js hands us the function that opens a .zip as a project
 
-export function initExplorer(container) {
+export function initExplorer(container, { openZip: open } = {}) {
   host = container;
+  openZip = open;
   on('folder', render);
   on('tree', render);
   on('active', updateActiveRow);
@@ -295,6 +297,15 @@ async function activateRow(row) {
   }
 
   selectedDir = fs.parentOf(path);
+
+  // A zip is not something to read in the editor, but it is something to work in: open its
+  // contents as the project instead of a tab full of unreadable bytes.
+  if (fs.isZipPath(path) && openZip) {
+    render();
+    await openZip(path);
+    return;
+  }
+
   try {
     await openFile(path); // the 'active' event re-renders the tree
   } catch (err) {

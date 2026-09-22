@@ -70,9 +70,10 @@ async function pickLocation(entry) {
   }
 }
 
-async function writeHandle(handle, text) {
-  const writable = await handle.createWritable();
-  await writable.write(text);
+/** Replace a file's contents on disk. `contents` may be text or a Blob. */
+async function writeHandle(handle, contents) {
+  const writable = await handle.createWritable(); // opens empty, so nothing of the old file is left
+  await writable.write(contents);
   await writable.close();
 }
 
@@ -126,8 +127,11 @@ export const saveScratchAs = () => saveScratch({ pickNew: true });
 /* ---------- Packing a folder back up ---------- */
 
 /**
- * Write every open tab into the folder, then download the whole folder as one zip named
- * after it. Unzipping it over the original folder puts every file back where it came from.
+ * Write every open tab into the folder, then pack the whole folder into one zip.
+ *
+ * A folder that came from a zip goes back into that zip, overwriting it in place when the
+ * browser allows. Any other folder is downloaded as <folder>.zip; unzipping it over the
+ * original puts every file back where it came from.
  */
 export async function saveFolderZip() {
   if (!fs.hasFolder()) {
@@ -142,14 +146,50 @@ export async function saveFolderZip() {
     return;
   }
 
-  const { blob, name: zipName } = zipFolder(name, { files, dirs });
+  // A zip that was opened here is written back in the shape it arrived in, under the name it
+  // arrived with — otherwise every round trip would gain a folder, or lose its name.
+  const source = fs.zipSource();
+  const { blob, name: zipName } = zipFolder(name, {
+    files,
+    dirs,
+    wrap: source ? source.wrapped : true,
+    fileName: source?.fileName || null,
+  });
+  const count = `${files.length} file${files.length === 1 ? '' : 's'}`;
+
+  if (source?.handle && await writeZipBack(source.handle, blob, zipName)) {
+    markNeedsExport(false);
+    toast(`Saved ${zipName} back where it came from, with all ${count}.`, 'success', 4000);
+    return;
+  }
+
   downloadBlob(zipName, blob);
   markNeedsExport(false);
 
-  const count = `${files.length} file${files.length === 1 ? '' : 's'}`;
-  if (state.folder?.kind === 'native') {
+  if (source) {
+    toast(`Downloaded ${zipName} (${count}) with your edits. Put it back over the original zip.`, 'success', 7000);
+  } else if (state.folder?.kind === 'native') {
     toast(`Downloaded ${zipName} — a copy of "${name}" with all ${count}.`, 'success', 5000);
   } else {
     toast(`Downloaded ${zipName} (${count}). Unzip it over your "${name}" folder to put everything back.`, 'success', 7000);
+  }
+}
+
+/**
+ * Overwrite the zip on disk. Returns false when it cannot be done — permission was refused,
+ * or the file is gone — and the caller then falls back to downloading it.
+ */
+async function writeZipBack(handle, blob, zipName) {
+  if (!(await verifyPermission(handle, { request: true }))) {
+    toast(`Writing to ${zipName} was not allowed, so it is being downloaded instead.`, 'warning', 5000);
+    return false;
+  }
+  try {
+    await writeHandle(handle, blob);
+    return true;
+  } catch (err) {
+    console.error(err);
+    toast(`${zipName} could not be written (${err.message}), so it is being downloaded instead.`, 'warning', 6000);
+    return false;
   }
 }

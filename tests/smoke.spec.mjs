@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { deflateRawSync } from 'node:zlib';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -56,6 +57,76 @@ async function step(name, fn) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Build a zip the way Windows, macOS and 7-Zip do: entries *deflated*, not stored. The app's
+ * own writer only stores, so a zip made here is the only way the test can prove that reading
+ * a genuinely compressed zip works. Written by hand for the same reason as readZip below.
+ */
+function makeZip(entries) {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let v = i;
+    for (let bit = 0; bit < 8; bit++) v = v & 1 ? 0xedb88320 ^ (v >>> 1) : v >>> 1;
+    table[i] = v >>> 0;
+  }
+  const crc32 = (bytes) => {
+    let crc = 0xffffffff;
+    for (const byte of bytes) crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    return (crc ^ 0xffffffff) >>> 0;
+  };
+
+  const body = [];
+  const directory = [];
+  let offset = 0;
+  for (const [rawName, contents] of Object.entries(entries)) {
+    const isDir = rawName.endsWith('/');
+    const name = Buffer.from(rawName, 'utf8');
+    const data = isDir ? Buffer.alloc(0) : Buffer.from(contents);
+    const packed = isDir ? Buffer.alloc(0) : deflateRawSync(data);
+    const crc = data.length ? crc32(data) : 0;
+
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);           // the name below is UTF-8
+    local.writeUInt16LE(isDir ? 0 : 8, 8);    // 8 = deflated
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(packed.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    body.push(local, name, packed);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(isDir ? 0 : 8, 10);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(packed.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(isDir ? 0x10 : 0, 38);
+    central.writeUInt32LE(offset, 42);
+    directory.push(central, name);
+
+    offset += 30 + name.length + packed.length;
+  }
+
+  const end = Buffer.alloc(22);
+  const count = Object.keys(entries).length;
+  const directorySize = directory.reduce((total, part) => total + part.length, 0);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(count, 8);
+  end.writeUInt16LE(count, 10);
+  end.writeUInt32LE(directorySize, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...body, ...directory, end]);
+}
+
+/** Hand a zip to the page: the picker cannot be clicked, but bytes can be passed in. */
+const toBase64 = (buffer) => buffer.toString('base64');
 
 /**
  * Read a zip the app produced. Every entry is *stored* (never compressed), so walking the
@@ -718,6 +789,166 @@ try {
     assert.deepEqual(names, ['index.html', 'style.css'], 'both files reopen; the missing one is skipped');
     assert.equal(await page.textContent('#status-cursor'), 'Ln 3, Col 5', 'the cursor should be where it was left');
     assert.match(await page.textContent('#toasts'), /1 file is no longer there/);
+  });
+
+  /* ---------- Opening a folder from a .zip ---------- */
+
+  // Every zip below is compressed (deflate), the way a zip from Windows, macOS or 7-Zip is:
+  // reading those is the whole point, and the app's own writer never produces one.
+  const siteZip = makeZip({
+    'hello/': '',
+    'hello/index.html': '<!doctype html>\n<title>Zipped</title>\n<h1>From a zip</h1>\n',
+    'hello/css/style.css': 'body { color: #0f0; }\n',
+    'hello/img/dot.png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 255, 254]),
+    'hello/empty/': '',
+    '__MACOSX/hello/._index.html': 'junk macOS leaves in every zip it makes',
+  });
+
+  // Waiting on a tab or a file path is not enough between projects: index.html is open in most
+  // of them. The Explorer header is rebuilt from scratch for each folder, so it is the signal.
+  const waitForProject = (name) => page.waitForFunction(
+    (expected) => document.querySelector('.tree-header-name')?.textContent === expected,
+    name,
+    { timeout: 10000 },
+  );
+
+  await step('a zip opens like a folder, with the single folder inside it peeled off', async () => {
+    await page.evaluate((b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      return window.SVS.openZipFile(bytes, { fileName: 'hello.zip' });
+    }, toBase64(siteZip));
+
+    await waitForProject('hello'); // the folder inside the zip becomes the root
+    await page.waitForSelector('.tree-row[data-path="index.html"]', { timeout: 10000 });
+    // The macOS junk folder is not something anyone opened a zip to see.
+    assert.equal(await page.locator('.tree-row[data-path="__MACOSX"]').count(), 0, '__MACOSX should be left out');
+    await page.waitForSelector('.tab.active:has-text("index.html")', { timeout: 10000 });
+    assert.match(
+      await page.evaluate(() => window.SVS.getEditor().getModel().getValue()),
+      /From a zip/,
+      'a compressed entry must come out as its original text',
+    );
+    assert.match(await page.textContent('#status-folder'), /hello \(from a zip\)/);
+    assert.match(await page.getAttribute('#status-folder', 'title'), /Opened from hello\.zip/);
+  });
+
+  await step('a binary file inside a zip survives being unpacked', async () => {
+    const bytes = await page.evaluate(async () => [...new Uint8Array(await window.SVS.fs.readBinary('img/dot.png'))]);
+    assert.deepEqual(bytes, [0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 255, 254], 'the PNG bytes must be untouched');
+  });
+
+  await step('editing a file from a zip says the edit is not back in the zip yet', async () => {
+    await page.click('.monaco-editor .view-lines');
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n<p>edited in the test</p>');
+    await page.keyboard.press('Control+s');
+    await page.waitForFunction(() => document.getElementById('status-folder').textContent.includes('not on your disk yet'));
+    assert.match(await page.textContent('#toasts'), /Save Folder downloads hello\.zip/);
+  });
+
+  await step('Save Folder packs a zip project back into a zip of the same shape', async () => {
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('#status-folder'),
+    ]);
+    // The name of the zip it came from, not the name of the folder inside it.
+    assert.equal(download.suggestedFilename(), 'hello.zip');
+
+    const entries = readZip(readFileSync(await download.path()));
+    assert.ok(entries.has('hello/index.html'), `the wrapper folder must come back, got ${[...entries.keys()]}`);
+    assert.ok(entries.has('hello/empty/'), 'an empty folder in the zip should still be there');
+    assert.match(entries.get('hello/index.html').toString('utf8'), /edited in the test/);
+    await page.waitForFunction(() => !document.getElementById('status-folder').textContent.includes('not on your disk'));
+  });
+
+  await step('a zip whose files sit at its own root is written back flat, not in a new folder', async () => {
+    const flat = makeZip({ 'index.html': '<h1>Flat</h1>', 'css/style.css': 'body {}' });
+    await page.evaluate((b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      return window.SVS.openZipFile(bytes, { fileName: 'flat.zip' });
+    }, toBase64(flat));
+    await waitForProject('flat'); // with nothing to peel, the zip itself names the root
+    await page.waitForSelector('.tree-row[data-path="index.html"]', { timeout: 10000 });
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('#status-folder'),
+    ]);
+    const entries = readZip(readFileSync(await download.path()));
+    assert.deepEqual(
+      [...entries.keys()].sort(),
+      ['css/', 'css/style.css', 'index.html'],
+      'a flat zip must stay flat, or every round trip would bury it one folder deeper',
+    );
+  });
+
+  await step('Open Zip File… opens what the picker hands back, and Save Folder writes into it', async () => {
+    await page.evaluate((b64) => {
+      window.__zipWrites = [];
+      window.showOpenFilePicker = async () => {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        return [{
+          kind: 'file',
+          name: 'picked.zip',
+          getFile: async () => new File([bytes], 'picked.zip', { type: 'application/zip' }),
+          queryPermission: async () => 'granted',
+          requestPermission: async () => 'granted',
+          createWritable: async () => ({
+            write: async (blob) => window.__zipWrites.push(new Uint8Array(await blob.arrayBuffer())),
+            close: async () => {},
+          }),
+        }];
+      };
+    }, toBase64(siteZip));
+
+    await page.click('#btn-open-menu');
+    await page.click('[data-command="open-zip"]');
+    await page.waitForFunction(
+      () => document.getElementById('toasts').textContent.includes('Opened "picked.zip"'),
+      null,
+      { timeout: 10000 },
+    );
+    await waitForProject('hello');
+    assert.match(await page.textContent('#toasts'), /packs them back into that same zip/);
+
+    // With a handle to write through, Save Folder overwrites the zip instead of downloading it.
+    await page.click('#status-folder');
+    await page.waitForFunction(() => window.__zipWrites.length === 1, null, { timeout: 10000 });
+    const written = Buffer.from(await page.evaluate(() => [...window.__zipWrites[0]]));
+    const entries = readZip(written);
+    assert.ok(entries.has('hello/index.html'), `the written zip should hold the project, got ${[...entries.keys()]}`);
+    assert.match(await page.textContent('#toasts'), /back where it came from/);
+  });
+
+  await step('a zip inside a folder opens as a project of its own', async () => {
+    const inner = makeZip({ 'bits/page.html': '<h1>Inner</h1>' });
+    const outer = makeZip({
+      'proj/index.html': '<h1>Outer</h1>',
+      'proj/inner.zip': inner,
+    });
+    await page.evaluate((b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      return window.SVS.openZipFile(bytes, { fileName: 'outer.zip' });
+    }, toBase64(outer));
+    await page.waitForSelector('.tree-row[data-path="inner.zip"]', { timeout: 10000 });
+
+    // Clicking it asks first, because the folder you are in is about to be replaced.
+    await page.click('.tree-row[data-path="inner.zip"]');
+    await page.waitForSelector('dialog[open]');
+    assert.match(await page.textContent('dialog[open] .dialog-title'), /Open "inner\.zip" as a project\?/);
+    await page.click('dialog[open] .dialog-confirm');
+
+    await waitForProject('bits');
+    await page.waitForSelector('.tree-row[data-path="page.html"]');
+  });
+
+  await step('a damaged zip is refused, and the folder you had open is left alone', async () => {
+    await page.evaluate(() => {
+      const junk = new TextEncoder().encode('this is not a zip, it is just some text');
+      return window.SVS.openZipFile(junk, { fileName: 'broken.zip' });
+    });
+    await page.waitForFunction(() => document.getElementById('toasts').textContent.includes('does not look like a zip'));
+    assert.equal(await page.textContent('.tree-header-name'), 'bits', 'the open folder must survive a zip that cannot be read');
   });
 
   await step('no JavaScript errors were thrown by the page', async () => {

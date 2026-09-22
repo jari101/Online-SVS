@@ -287,6 +287,7 @@ select:focus, input:focus, textarea:focus { border-color: var(--focus); outline:
 .ft-java { color: var(--icon-java); }
 .ft-image { color: var(--icon-image); }
 .ft-svg { color: var(--icon-svg); }
+.ft-archive { color: var(--icon-archive); }
 .ft-default { color: var(--icon-default); }
 
 /* ---------- Editor tabs ---------- */
@@ -513,6 +514,39 @@ button.status-item:focus-visible { outline: 1px solid var(--fg-bright); outline-
 .dialog-message { margin: 0 0 20px; line-height: 1.5; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-actions .btn { height: 28px; padding: 0 14px; }
+
+/* ---------- Drop a zip on the window ---------- */
+/* Covers everything while a file is being dragged over the page, so it is clear that letting
+   go does something. It never takes clicks: the moment it is visible, the pointer is dragging. */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-backdrop);
+  pointer-events: none;
+}
+.drop-overlay[hidden] { display: none; }
+.drop-card {
+  max-width: 340px;
+  padding: 24px 28px;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  text-align: center;
+  text-wrap: balance;
+}
+.drop-icon { display: inline-flex; color: var(--icon-archive); }
+.drop-icon svg { width: 40px; height: 40px; }
+.drop-title { margin: 10px 0 6px; font-size: 15px; font-weight: 600; color: var(--fg-bright); }
+.drop-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .drop-card { animation: drop-in 0.15s ease-out; }
+  @keyframes drop-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+}
 
 /* ---------- Toasts ---------- */
 #toasts {

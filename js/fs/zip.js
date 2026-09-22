@@ -18,7 +18,8 @@ const LIMIT = 0xfffffffe;       // a plain zip counts in 32 bits; beyond this it
 
 let crcTable = null;
 
-function crc32(bytes) {
+/** The checksum a zip stores beside every entry. js/fs/unzip.js checks it when reading one back. */
+export function crc32(bytes) {
   if (!crcTable) {
     crcTable = new Uint32Array(256);
     for (let i = 0; i < 256; i++) {
@@ -125,11 +126,17 @@ export function zip(entries, { modified = new Date() } = {}) {
 /**
  * The same, but everything ends up inside one top-level folder named after your folder, so
  * unzipping next to the original merges the files straight back into it.
+ *
+ * `wrap: false` leaves that folder out and puts the files at the zip's own root. That is for
+ * writing back into a zip that was opened with its files already at the root: what comes out
+ * has to be shaped like what went in, or the next unzip would gain a folder every time.
+ * `fileName` likewise keeps the name of the zip it came from, whatever the folder is called.
  */
-export function zipFolder(rootName, { files = [], dirs = [] } = {}) {
+export function zipFolder(rootName, { files = [], dirs = [], wrap = true, fileName = null } = {}) {
   const root = rootName.replace(/[\\/:*?"<>|]/g, '_') || 'folder';
-  const entries = [{ name: root, dir: true }];
-  for (const path of dirs) if (path) entries.push({ name: `${root}/${path}`, dir: true });
-  for (const { path, data } of files) entries.push({ name: `${root}/${path}`, data });
-  return { blob: zip(entries), name: `${root}.zip` };
+  const at = (path) => (wrap ? `${root}/${path}` : path);
+  const entries = wrap ? [{ name: root, dir: true }] : [];
+  for (const path of dirs) if (path) entries.push({ name: at(path), dir: true });
+  for (const { path, data } of files) entries.push({ name: at(path), data });
+  return { blob: zip(entries), name: fileName || `${root}.zip` };
 }
